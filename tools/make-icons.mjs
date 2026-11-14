@@ -9,6 +9,11 @@
 //
 // Style (ui/jibo-ui-classic iconography, derived): white glyph, navy cut-outs, soft long
 // shadow toward the lower right (black, at most about 0.2 alpha).
+//
+// Tile placement (iconography.drawingBox): a SkillButton is a circle of diameter 330 whose
+// bottom is cut off at y=300, so the circle's centre is (165, 165) in the 330x300 canvas. Each
+// tile glyph is rendered once, its opaque bounding box is measured (shadow excluded), and the
+// glyph is shifted so that box is centred on (165, 165) - not on the visible 300 px shape.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -23,10 +28,12 @@ const { chromium } = require(process.argv[2] || 'playwright');
 
 const TILES = ['apod', 'hubble', 'webb', 'eso', 'noirlab', 'iotd', 'epic', 'efs', 'kenburns', 'iris', 'lookup', 'starfield',
   'speak', 'caption', 'slideshow', 'layers', 'timer'];
-const ACTIONS = ['prev', 'next', 'gear', 'refresh'];
-// [file, canvas w, h, glyph box, glyph x, glyph y, shadow length]
+const ACTIONS = ['gear', 'refresh'];
+// [file, canvas w, h, glyph box, glyph x, glyph y, shadow length, glyph name]
+// Tiles pass null for x/y: the glyph's measured opaque box is centred on TILE_CENTRE instead.
+const TILE_CENTRE = [165, 165];
 const jobs = [
-  ...TILES.map((n) => [`tile-${n}.png`, 330, 300, 180, 75, 52, 110, n]),
+  ...TILES.map((n) => [`tile-${n}.png`, 330, 300, 180, null, null, 110, n]),
   ...ACTIONS.map((n) => [`action-${n}.png`, 265, 265, 150, 57.5, 57.5, 80, n]),
   ['../../../icon.png', 330, 330, 190, 70, 64, 140, 'telescope']
 ];
@@ -40,10 +47,24 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.setContent('<html><body></body></html>');
 for (const [file, w, h, box, gx, gy, len, name] of jobs) {
-  const data = await page.evaluate(async ({ w, h, box, gx, gy, len, white, black }) => {
+  const data = await page.evaluate(async ({ w, h, box, gx, gy, len, centre, white, black }) => {
     const load = (src) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
     const [g, s] = await Promise.all([load(white), load(black)]);
     const canvas = (cw, ch) => Object.assign(document.createElement('canvas'), { width: cw, height: ch });
+    if (gx === null) {
+      // Measure the glyph's opaque bounding box (alpha >= 128) at its final size, then place it
+      // with whole-pixel offsets so its centre lands on `centre` (within half a pixel).
+      const m = canvas(box, box), mx = m.getContext('2d');
+      mx.drawImage(g, 0, 0, box, box);
+      const a = mx.getImageData(0, 0, box, box).data;
+      let x0 = box, y0 = box, x1 = -1, y1 = -1;
+      for (let y = 0; y < box; y++) for (let x = 0; x < box; x++) {
+        if (a[(y * box + x) * 4 + 3] >= 128) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      if (x1 < 0) throw new Error('empty glyph');
+      gx = Math.round(centre[0] - (x0 + x1) / 2);
+      gy = Math.round(centre[1] - (y0 + y1) / 2);
+    }
     // Long shadow: the silhouette swept toward the lower right, fading along its length.
     const sh = canvas(w, h), sx = sh.getContext('2d');
     for (let d = 0; d <= len; d += 1) sx.drawImage(s, gx + d, gy + d, box, box);
@@ -55,7 +76,7 @@ for (const [file, w, h, box, gx, gy, len, name] of jobs) {
     ctx.globalAlpha = 0.2; ctx.drawImage(sh, 0, 0); ctx.globalAlpha = 1;
     ctx.drawImage(g, gx, gy, box, box);
     return out.toDataURL('image/png');
-  }, { w, h, box, gx, gy, len, white: svg(name, false), black: svg(name, true) });
+  }, { w, h, box, gx, gy, len, centre: TILE_CENTRE, white: svg(name, false), black: svg(name, true) });
   writeFileSync(join(ICONS, file), Buffer.from(data.split(',')[1], 'base64'));
 }
 await browser.close();

@@ -2,8 +2,9 @@
 // The person's choices, in <data root>/settings.json. That folder belongs to Stargazer and
 // outlives skill updates (BEacon keeps custom-skill data under Knowledge/beacon on the robot and
 // /tmp/beam-beacon in development and the simulator). Pictures are NEVER written here or
-// anywhere: they live in memory only. Besides settings.json there is seen.json, a short list of
-// picture ids already shown (for the "New" badge), capped at SEEN_MAX entries.
+// anywhere: they live in memory only. Besides settings.json there are seen.json, a short list of
+// picture ids already shown (for the "New" badge), capped at SEEN_MAX entries, and sources.json,
+// the id and date of the newest picture last shown from each source (picture choice, catalog.js).
 // Runs on the robot's Node 6: ES2015 only.
 var fs = require('fs'), path = require('path');
 
@@ -85,6 +86,23 @@ class Store {
         if (list.indexOf(id) >= 0) return list;
         var next = list.concat([id]).slice(-SEEN_MAX);
         try { writeJson(this.root, 'seen.json', next); } catch (_) {}
+        return next;
+    }
+    // The newest picture last shown from each source ({id: {key, date, at}}), so the next opening
+    // knows without downloading which sources may have something new (catalog.js isFresh).
+    history() {
+        var given = readJson(path.join(this.root, 'sources.json'), 16 * 1024), out = {};
+        if (!given || typeof given !== 'object') return out;
+        SOURCES.forEach(function (id) {
+            var h = given[id];
+            if (h && typeof h.key === 'string') out[id] = {key: h.key, date: Number(h.date) || 0, at: Number(h.at) || 0};
+        });
+        return out;
+    }
+    remember(history, item, now) {
+        var next = Object.assign({}, history);
+        next[item.source] = {key: item.key, date: Number(item.date) || 0, at: now || Date.now()};
+        try { writeJson(this.root, 'sources.json', next); } catch (_) {}
         return next;
     }
 }

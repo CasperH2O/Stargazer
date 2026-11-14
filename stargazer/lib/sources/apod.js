@@ -8,6 +8,10 @@ var t = require('./text');
 
 var MIRROR = 'https://apod.as93.net/apod';
 var OFFICIAL = 'https://api.nasa.gov/planetary/apod?api_key=DEMO_KEY';
+// The catalog gives a whole source 25 s (LIST_TIMEOUT in catalog.js) and net.get waits 20 s by
+// default. A hanging mirror would leave the official API ~5 s, so the source would be skipped even
+// when the fallback answers: the first try gets 8 s and the fallback 15 s (8 + 15 < 25).
+var FIRST = {timeoutMs: 8000}, FALLBACK = {timeoutMs: 15000};
 
 // Pictures on NASA's image service can be asked for at screen size.
 function screenUrl(u) {
@@ -29,10 +33,10 @@ function parse(j) {
         imageUrl: screenUrl(j.url), needsResolve: false}];
 }
 module.exports = {
-    id: 'apod', label: 'NASA APOD', short: 'NASA APOD', parse: parse, screenUrl: screenUrl,
+    id: 'apod', label: 'NASA APOD', short: 'NASA APOD', parse: parse, screenUrl: screenUrl, FIRST: FIRST, FALLBACK: FALLBACK,
     list: function (net) {
-        return net.json(MIRROR).then(parse).catch(function () { return []; }).then(function (list) {
-            return list.length ? list : net.json(OFFICIAL).then(parse);
+        return net.json(MIRROR, FIRST).then(parse).catch(function () { return []; }).then(function (list) {
+            return list.length ? list : net.json(OFFICIAL, FALLBACK).then(parse);
         }).then(function (list) {
             if (!list.length) throw Error('apod_no_picture_today');
             return list;

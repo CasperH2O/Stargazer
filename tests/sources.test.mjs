@@ -40,6 +40,27 @@ test('APOD falls back to the official API when the mirror fails', async () => {
   assert.equal(it.title, 'Official');
 });
 
+// Records the options each request is made with (fakeNet itself ignores them).
+function recording(net) {
+  const seen = [];
+  const wrap = (fn) => (url, options) => { seen.push([url, options && options.timeoutMs]); return fn(url, options); };
+  return { seen, text: wrap(net.text), json: wrap(net.json), get: wrap(net.get) };
+}
+
+test('fallback chains fit the catalog budget: first try 8 s, fallback 15 s (a hanging first try still leaves the fallback time)', async () => {
+  assert.ok(apod.FIRST.timeoutMs + apod.FALLBACK.timeoutMs < 25000);
+  const djm = lib('sources/djangoplicity.js');
+  assert.ok(djm.FIRST.timeoutMs + djm.FALLBACK.timeoutMs < 25000);
+  const a = recording(fakeNet({ 'https://apod.as93.net': new Error('timeout'), 'https://api.nasa.gov': { title: 'Official', url: 'https://apod.nasa.gov/o.jpg', media_type: 'image', date: '2026-11-14' } }));
+  await apod.list(a);
+  assert.deepEqual(a.seen.map((c) => c[1]), [8000, 15000]);
+  assert.match(a.seen[0][0], /apod\.as93\.net/); assert.match(a.seen[1][0], /api\.nasa\.gov/);
+  const h = recording(fakeNet({ 'https://esahubble.org/images/potm/feed/': new Error('timeout'), 'https://esahubble.org/images/potm/': fixture('hubble-listing.html') }));
+  const list = await dj.hubble.list(h, 6);
+  assert.ok(list.length > 0);
+  assert.deepEqual(h.seen, [['https://esahubble.org/images/potm/feed/', 8000], ['https://esahubble.org/images/potm/', 15000]]);
+});
+
 test('ESA/Hubble: feed is stale, listing has the newer monthly picture', async () => {
   const net = fakeNet({ 'https://esahubble.org/images/potm/feed/': fixture('hubble-feed.xml'), 'https://esahubble.org/images/potm/': fixture('hubble-listing.html') });
   const list = await dj.hubble.list(net, 6);

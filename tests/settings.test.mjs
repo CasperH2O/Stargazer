@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { lib } from './helpers.mjs';
@@ -38,7 +38,7 @@ test('Show for and slideshow cycle through their steps; a slideshow keeps it ope
   assert.equal(S.closeAfter(v), 0);
 });
 
-test('store: atomic private settings.json, capped seen.json, nothing else written', () => {
+test('store: atomic private settings.json, capped seen.json, per-source history, nothing else written', () => {
   const root = join(mkdtempSync(join(tmpdir(), 'stargazer-')), 'data');
   const store = new S.Store(root);
   assert.deepEqual(store.read(), S.clean());
@@ -49,6 +49,13 @@ test('store: atomic private settings.json, capped seen.json, nothing else writte
   for (let i = 0; i < S.SEEN_MAX + 20; i++) seen = store.markSeen(seen, 'k' + i);
   assert.equal(seen.length, S.SEEN_MAX);
   assert.equal(store.seen().length, S.SEEN_MAX);
+  assert.deepEqual(store.history(), {});
+  let h = store.remember({}, { source: 'apod', key: 'apod:2026-11-14', date: 5 }, 7);
+  h = store.remember(h, { source: 'eso', key: 'eso:potw1', date: undefined }, 8);
+  assert.deepEqual(store.history(), { apod: { key: 'apod:2026-11-14', date: 5, at: 7 }, eso: { key: 'eso:potw1', date: 0, at: 8 } });
+  writeFileSync(join(root, 'sources.json'), JSON.stringify({ apod: { key: 3 }, bogus: { key: 'x' }, eso: { key: 'e', date: 'NaN' } }));
+  assert.deepEqual(store.history(), { eso: { key: 'e', date: 0, at: 0 } });
+  assert.deepEqual(readdirSync(root).sort(), ['seen.json', 'settings.json', 'sources.json']);
   writeFileSync(join(root, 'settings.json'), 'not json');
   assert.deepEqual(store.read(), S.clean());
 });

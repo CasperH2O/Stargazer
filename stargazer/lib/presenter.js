@@ -1,7 +1,9 @@
 'use strict';
 // Presents pictures with the chosen effects. It owns no timers: the screen drives update(dt) from
 // the PIXI ticker (the effect videos drive it frame by frame). It owns no textures either: when a
-// picture has left the screen it hands its texture back through opts.onRetire(texture).
+// picture has left the screen it hands its texture back through opts.onRetire(texture), exactly once.
+// Everything it schedules for a picture is bound to that picture: once a newer one has replaced it
+// (entry !== current) the old picture's caption, onShown and sparkles never happen.
 //
 //   var p = new Presenter(PIXI, root, {view, effects: {kenBurns, iris, lookUp, starfield},
 //                                      seed, onLookUp, onRetire, onShown, showCaption});
@@ -26,6 +28,7 @@ function Presenter(PIXI, root, opts) {
     ['back', 'pic', 'fx', 'cap'].forEach(function (k) { this.layers[k] = new PIXI.Container(); root.addChild(this.layers[k]); }, this);
     this.caption = new Caption(PIXI, this.layers.cap, this.view);
     this.now = 0; this.events = []; this.anims = []; this.current = null; this.shown = 0;
+    this.entries = [];   // every picture placed and not yet retired (the current one and any on its way out)
 }
 
 Presenter.prototype.at = function (delay, fn) { this.events.push({at: this.now + delay, fn: fn}); };
@@ -48,6 +51,7 @@ Presenter.prototype.place = function (texture) {
         if (!nearly) entry.back = this.backdrop(texture, holder);
     }
     holder.addChild(sprite);
+    this.entries.push(entry);
     return entry;
 };
 
@@ -70,13 +74,18 @@ Presenter.prototype.backdrop = function (texture, holder) {
     return {sprite: s, rt: tex};
 };
 
+// Hands the texture back even when tearing down its sprites fails (the stage may be gone already).
 Presenter.prototype.retire = function (entry) {
     if (!entry || entry.retired) return;
     entry.retired = true;
-    if (entry.holder.parent) entry.holder.parent.removeChild(entry.holder);
-    if (entry.back) entry.back.rt.destroy(true);
-    entry.holder.destroy({children: true});            // sprites only; the texture goes back to the owner
-    if (this.opts.onRetire) this.opts.onRetire(entry.texture);
+    var i = this.entries.indexOf(entry);
+    if (i >= 0) this.entries.splice(i, 1);
+    try {
+        try { if (entry.back) entry.back.rt.destroy(true); }
+        finally { util.dispose(entry.holder, {children: true}); }   // sprites only; the texture goes back to the owner
+    } finally {
+        if (this.opts.onRetire) this.opts.onRetire(entry.texture);
+    }
 };
 
 Presenter.prototype.show = function (texture, info) {
@@ -96,7 +105,7 @@ Presenter.prototype.wait = function () {
     this.waiting = {eye: eye, ring: ring};
     this.run({update: function (dt) {
         if (self.waiting && self.waiting.ring === ring) { ring.rotation += dt / 1000 * Math.PI; return false; }
-        if (ring.parent) ring.parent.removeChild(ring); ring.destroy(); return true;
+        util.dispose(ring); return true;
     }});
 };
 
@@ -113,6 +122,7 @@ Presenter.prototype.intro = function (texture, info) {
     if (fx.starfield) {
         var tWarp = fx.lookUp ? T.lookUp * 0.55 : 300;
         this.at(tWarp, function () {
+            if (entry !== self.current) return;
             var w = new starfield.Warp(PIXI, self.layers.fx, {view: view, cx: cx, cy: cy, duration: T.warp, rand: self.rand});
             self.layers.fx.setChildIndex(w.g, 0);      // behind the eye
             self.run(w);
@@ -120,7 +130,9 @@ Presenter.prototype.intro = function (texture, info) {
         tReveal = Math.max(tReveal, tWarp + T.warp * 0.7);
     }
     this.at(tReveal, function () {
-        if (entry.retired) { if (eye && eye.c) eye.destroy(); return; }   // replaced before it was revealed
+        // Replaced before it was revealed: never put it above the newer picture; drop the eye and
+        // hand the texture back now (the newer picture's cross-fade would only retire it later).
+        if (entry !== self.current || entry.retired) { if (eye) eye.destroy(); self.retire(entry); return; }
         self.layers.pic.addChild(entry.holder);
         if (entry.kb) self.run(kenBurnsAnim(entry));
         var revealMs = fx.iris ? T.iris : T.fade;
@@ -131,18 +143,25 @@ Presenter.prototype.intro = function (texture, info) {
             self.run(fade(entry.holder, 0, 1, T.fade));
         }
         if (eye) self.run(fadeThen(eye.c, 1, 0, fx.iris ? 450 : T.fade, function () { eye.destroy(); }));
-        self.at(revealMs + 150, function () { self.showCaption(); });
+        self.at(revealMs + 150, function () { self.showCaption(entry); });
     });
 };
 
-Presenter.prototype.showCaption = function () {
-    if (this.opts.onShown) this.opts.onShown();
+// The picture is in: its caption shows and the owner hears about it (onShown(texture)), once per
+// picture and only while it is still the current one.
+Presenter.prototype.showCaption = function (entry) {
+    if (!entry || entry !== this.current || entry.shown) return;
+    entry.shown = true;
     this.captionDue = true;
     this.captionFade(T.caption);
+    if (this.opts.onShown) this.opts.onShown(entry.texture);
     if (this.opts.showCaption === false || this.covered) return;
     if (this.fx.starfield) {
         var self = this;
-        this.at(T.caption * 0.5, function () { self.run(new starfield.Twinkle(self.PIXI, self.layers.cap, self.caption.sparkleSpots(), {duration: 3600})); });
+        this.at(T.caption * 0.5, function () {
+            if (entry !== self.current) return;
+            self.run(new starfield.Twinkle(self.PIXI, self.layers.cap, self.caption.sparkleSpots(), {duration: 3600}));
+        });
     }
 };
 
@@ -159,8 +178,8 @@ Presenter.prototype.next = function (texture, info) {
         w.g.alpha = 0.6; this.run(w);
     }
     this.run(fadeThen(entry.holder, 0, 1, T.cross, function () { self.retire(old); }));
-    this.at(T.captionOut, function () { self.caption.set(info); });
-    this.at(T.cross * 0.6, function () { self.showCaption(); });
+    this.at(T.captionOut, function () { if (entry === self.current) self.caption.set(info); });
+    this.at(T.cross * 0.6, function () { self.showCaption(entry); });
 };
 
 // Settings changed while open: effects apply from the next picture, the caption at once.
@@ -183,6 +202,7 @@ Presenter.prototype.captionFade = function (ms) {
 };
 
 Presenter.prototype.update = function (dt) {
+    if (this.destroyed) return;
     this.now += dt;
     var due = this.events.filter(function (e) { return e.at <= this.now; }, this);
     this.events = this.events.filter(function (e) { return e.at > this.now; }, this);
@@ -191,14 +211,25 @@ Presenter.prototype.update = function (dt) {
     this.caption.update(dt);
 };
 
+// On close the SDK may already have destroyed the stage (root, layers and effect graphics). Each
+// step runs on its own so a failing one never skips the rest: every texture still goes back
+// through onRetire and our own canvas textures (backdrops, caption gradient) are destroyed.
+// Throws the first error afterwards, if any.
 Presenter.prototype.destroy = function () {
-    if (this.waiting) { this.waiting.eye.destroy(); this.waiting = null; }
-    this.anims.forEach(function (a) { if (a.destroy) a.destroy(); });
-    this.anims = []; this.events = [];
-    this.retire(this.current); this.current = null;
-    this.caption.destroy();
-    var root = this.root;
-    Object.keys(this.layers).forEach(function (k) { root.removeChild(this.layers[k]); this.layers[k].destroy({children: true}); }, this);
+    if (this.destroyed) return;
+    this.destroyed = true;
+    var first = null;
+    function step(fn) { try { fn(); } catch (error) { if (!first) first = error; } }
+    var waiting = this.waiting, anims = this.anims, entries = this.entries.slice(), layers = this.layers;
+    this.waiting = null; this.anims = []; this.events = []; this.current = null;
+    if (waiting) { step(function () { waiting.eye.destroy(); }); step(function () { util.dispose(waiting.ring); }); }
+    anims.forEach(function (a) { if (a.destroy) step(function () { a.destroy(); }); });
+    entries.forEach(function (entry) { step(this.retire.bind(this, entry)); }, this);
+    step(this.caption.destroy.bind(this.caption));
+    Object.keys(layers).forEach(function (k) {
+        step(function () { util.dispose(layers[k], {children: true}); });
+    });
+    if (first) throw first;
 };
 
 // Ken Burns keeps moving a picture until it has left the screen (also during its cross-fade out).

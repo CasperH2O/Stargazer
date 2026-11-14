@@ -1,19 +1,22 @@
 'use strict';
 // HTTP(S) GET into memory, the way BEam's own skills fetch (Node http/https; BEam's music skill
 // reaches lrclib.net like this). Bodies are capped in size and time and never touch the disk.
-// Redirects are followed (up to 4). get(url, {maxBytes, timeoutMs, accept}) -> Promise<{status,
-// headers, body: Buffer, url}>; text(url) and json(url) are shorthands.
+// Redirects are followed (up to 4); timeoutMs covers the whole get, redirects included.
+// get(url, {maxBytes, timeoutMs, accept}) -> Promise<{status, headers, body: Buffer, url}>;
+// text(url) and json(url) are shorthands.
 // Runs on the robot's Node 6: ES2015 only.
 var http = require('http'), https = require('https'), urlLib = require('url');
 
-var USER_AGENT = 'Stargazer/0.1 (Jibo skill)';
+var USER_AGENT = 'Stargazer/0.2 (Jibo skill)';
 var DEFAULT_MAX = 4 * 1024 * 1024, DEFAULT_TIMEOUT = 20000;
 
 function get(target, options, transport) {
     options = options || {};
     transport = transport || {http: http, https: https};
     var maxBytes = options.maxBytes || DEFAULT_MAX, timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT;
-    var hops = 0;
+    // One deadline for the whole get, redirects included: a per-hop timer would let a redirecting
+    // server stretch a caller's budget (catalog.js gives a source 25 s) up to five times.
+    var hops = 0, deadline = Date.now() + timeoutMs;
     function once(address) {
         return new Promise(function (resolve, reject) {
             var u = urlLib.parse(address), lib = u.protocol === 'https:' ? transport.https : transport.http;
@@ -46,7 +49,7 @@ function get(target, options, transport) {
                 response.on('end', function () { finish(null, {status: status, headers: headers, body: Buffer.concat(chunks), url: address}); });
             });
             request.on('error', function (error) { finish(error); });
-            timer = setTimeout(function () { finish(Error('timeout')); }, timeoutMs);
+            timer = setTimeout(function () { finish(Error('timeout')); }, Math.max(0, deadline - Date.now()));
             request.end();
         }).then(function (result) {
             if (result.redirect) {

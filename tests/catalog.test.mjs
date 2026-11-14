@@ -5,30 +5,51 @@ const Catalog = lib('catalog.js'), images = lib('images.js'), net = lib('net.js'
 
 function source(id, list, resolve) { return { id, short: id, list: () => (list instanceof Error ? Promise.reject(list) : Promise.resolve(list)), resolve }; }
 
-test('interleaves sources (newest of each first), skips a failing one, starts at the newest unseen', async () => {
-  const log = { info() {}, warn() {} };
-  const c = new Catalog({ net: {}, log, memory: {}, sources: {
-    a: source('a', [{ key: 'a1', date: 9 }, { key: 'a2', date: 8 }, { key: 'a3', date: 7 }]),
-    b: source('b', new Error('down')),
-    c: source('c', [{ key: 'c1', date: 2 }, { key: 'a1', date: 9 }]) } });
-  const items = await c.load(['a', 'b', 'c']);
-  assert.deepEqual(items.map((i) => i.key), ['a1', 'c1', 'a2', 'a3']);
-  assert.deepEqual(c.failed, ['b']);
-  assert.equal(c.startIndex(['a1']), 1);
-  assert.equal(c.startIndex(['a1', 'c1', 'a2', 'a3']), 0);
+test('one source at a time: fresh sources first (in random order), the avoided one last', () => {
+  const DAY = 86400000, now = 100 * DAY, log = { info() {}, warn() {} };
+  const memory = { m: { at: now - 1000, items: [{ key: 'm1', date: 1 }] }, n: { at: now - 1000, items: [{ key: 'n1', date: 1 }] } };
+  const reg = { apod: source('apod', []), hubble: source('hubble', []), eso: source('eso', []), m: source('m', []), n: source('n', []), x: source('x', []) };
+  const c = new Catalog({ net: {}, log, memory, sources: reg, now: () => now });
+  const history = {
+    apod: { key: 'apod:old', date: now - 2 * DAY },          // daily, 2 days ago: fresh
+    hubble: { key: 'hubble:old', date: now - 10 * DAY },     // monthly, 10 days ago: not fresh
+    eso: { key: 'eso:old', date: 0, at: now - 8 * DAY }      // weekly, no date, shown 8 days ago: fresh
+  };
+  const seen = ['m1'];
+  assert.equal(c.isFresh('apod', seen, history), true);
+  assert.equal(c.isFresh('hubble', seen, history), false);
+  assert.equal(c.isFresh('eso', seen, history), true);
+  assert.equal(c.isFresh('m', seen, history), false);        // list in memory, newest already seen
+  assert.equal(c.isFresh('n', seen, history), true);         // list in memory, newest unseen
+  assert.equal(c.isFresh('x', seen, history), true);         // never shown here
+  const order = c.order(['apod', 'hubble', 'eso', 'm', 'n', 'x', 'gone'], seen, history, () => 0.5);
+  assert.deepEqual(order.slice(0, 4).sort(), ['apod', 'eso', 'n', 'x']);
+  assert.deepEqual(order.slice(4).sort(), ['hubble', 'm']);
+  const avoided = c.order(['apod', 'eso', 'x'], seen, history, Math.random, 'apod');
+  assert.equal(avoided[2], 'apod'); assert.equal(avoided.length, 3);
 });
 
-test('lists are remembered for an hour; a failed resolve still shows the picture', async () => {
-  let calls = 0, now = 0;
+test('only the chosen source is fetched; its own newest-first order is kept (undated listing items) and remembered for an hour', async () => {
+  let calls = 0, other = 0, now = 0;
   const memory = {};
-  const sources = { a: { id: 'a', short: 'A', list: () => { calls++; return Promise.resolve([{ key: 'x', date: 1, source: 'a', needsResolve: true }]); }, resolve: () => Promise.reject(new Error('page down')) } };
+  const sources = {
+    a: { id: 'a', short: 'A', list: () => { calls++; return Promise.resolve([{ key: 'x', date: 0, source: 'a', needsResolve: true }, { key: 'old', date: 1, source: 'a' }]); }, resolve: () => Promise.reject(new Error('page down')) },
+    b: { id: 'b', short: 'B', list: () => { other++; return Promise.resolve([]); } },
+    c: source('c', new Error('down'))
+  };
   const c = new Catalog({ net: {}, memory, sources, now: () => now, log: { info() {}, warn() {} } });
-  await c.load(['a']); now += 30 * 60000; await c.load(['a']);
+  const items = await c.list('a');
+  assert.deepEqual(items.map((i) => i.key), ['x', 'old']);
+  assert.equal(other, 0);
+  now += 30 * 60000; await c.list('a');
   assert.equal(calls, 1);
-  now += 31 * 60000; await c.load(['a']);
+  now += 31 * 60000; await c.list('a');
   assert.equal(calls, 2);
-  const it = await c.resolve(c.items[0]);
+  await assert.rejects(c.list('b'), /empty/);
+  await assert.rejects(c.list('c'), /down/);
+  const it = await c.resolve(items[0]);
   assert.equal(it.credit, 'A'); assert.equal(it.needsResolve, false);
+  assert.equal(it.title, 'A');                               // a listing item without a title gets the source's name
 });
 
 test('images: only real JPEG/PNG/WebP bytes are accepted', () => {

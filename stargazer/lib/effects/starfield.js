@@ -46,7 +46,7 @@ Warp.prototype.update = function (dt) {
     if (this.t >= this.duration) { this.done = true; this.destroy(); }
     return this.done;
 };
-Warp.prototype.destroy = function () { if (this.g) { if (this.g.parent) this.g.parent.removeChild(this.g); this.g.destroy(); this.g = null; } };
+Warp.prototype.destroy = function () { util.dispose(this.g); this.g = null; };
 
 // Four-point sparkle polygon around (x, y) with arm length L.
 function sparklePoints(x, y, L) {

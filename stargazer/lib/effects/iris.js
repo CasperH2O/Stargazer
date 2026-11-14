@@ -53,7 +53,7 @@ Iris.prototype.finish = function () {
     this.destroy();
 };
 Iris.prototype.destroy = function () {
-    [this.mask, this.ring].forEach(function (g) { if (g) { if (g.parent) g.parent.removeChild(g); g.destroy(); } });
+    [this.mask, this.ring].forEach(function (g) { util.dispose(g); });
     this.mask = this.ring = null;
 };
 

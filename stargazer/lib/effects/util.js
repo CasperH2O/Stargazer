@@ -27,4 +27,14 @@ function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
 function progress(now, start, duration) { return duration <= 0 ? (now >= start ? 1 : 0) : clamp01((now - start) / duration); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 
-module.exports = { rng: rng, ease: ease, clamp01: clamp01, progress: progress, lerp: lerp };
+// PIXI 4 sets _destroyed on a DisplayObject it has destroyed (the SDK destroys the whole view stage
+// on close before the skill tears down). A second Graphics.destroy() throws, so skip those.
+function destroyed(obj) { return !obj || !!obj._destroyed; }
+// Removes obj from its parent and destroys it, unless it is already gone.
+function dispose(obj, options) {
+    if (destroyed(obj)) return;
+    if (obj.parent) obj.parent.removeChild(obj);
+    obj.destroy(options);
+}
+
+module.exports = { rng: rng, ease: ease, clamp01: clamp01, progress: progress, lerp: lerp, destroyed: destroyed, dispose: dispose };

@@ -2,6 +2,7 @@
 // The caption over the picture: a soft dark gradient at the bottom, the title, one line of
 // "object · constellation · telescope", and the credit. Sizes follow the classic style guide:
 // nothing under 30 px, text inside the 80 px side margins and above the 40 px bottom margin.
+var util = require('./effects/util');
 var FONT = {title: 'Proxima Nova Soft', body: 'Proxima Nova Light'};
 var X = 80, MAX_W = 1120;
 
@@ -54,15 +55,19 @@ Caption.prototype.sparkleSpots = function () {
 };
 Caption.prototype.fade = function (to, ms) { this.target = to; this.speed = ms > 0 ? 1 / ms : Infinity; };
 Caption.prototype.update = function (dt) {
+    if (!this.c) return;
     var a = this.c.alpha;
     if (a === this.target) return;
     var step = this.speed === Infinity ? 1 : dt * this.speed;
     this.c.alpha = a < this.target ? Math.min(this.target, a + step) : Math.max(this.target, a - step);
 };
+// The SDK may already have destroyed the stage (and so this container); the gradient's canvas
+// texture is ours either way.
 Caption.prototype.destroy = function () {
     if (!this.c) return;
-    if (this.c.parent) this.c.parent.removeChild(this.c);
-    this.c.destroy({children: true}); this.gradTex.destroy(true); this.c = null;
+    var c = this.c, tex = this.gradTex;
+    this.c = null; this.gradTex = null;
+    try { util.dispose(c, {children: true}); } finally { tex.destroy(true); }
 };
 
 module.exports = { Caption: Caption, FONT: FONT };

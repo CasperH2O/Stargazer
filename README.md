@@ -17,11 +17,10 @@ Stargazer needs BEam 3.1.9 or newer and an internet connection.
 4. Jibo reads the title aloud. He reads only the title, never the long description.
 5. After 10 seconds, Jibo's eye comes back. Touching the picture restarts that time.
 
-Sources take turns, so a daily source does not crowd out the weekly and monthly ones. Stargazer starts at the newest picture you have not seen yet.
+Each time, Stargazer picks **one** source at random and shows its newest picture. It prefers a source that it knows has something new without downloading anything. Either that source's list is still in memory with an unseen newest picture, or the source's publishing rhythm (daily, weekly or monthly) has passed since the last picture it showed. Only the chosen source is contacted. If it fails, Stargazer tries another one.
 
 On the picture:
-- **Tap:** shows the info overlay with a short description, the source and date, and the credit. Its buttons are **Previous**, **Settings** and **Next**.
-- **Swipe left or right:** shows the next or previous picture.
+- **Tap:** shows the info overlay with a short description, the source and date, and the credit, plus a **Settings** button.
 - **Swipe down:** goes back one level. On the picture it closes Stargazer.
 
 ## Settings
@@ -52,7 +51,7 @@ ESA Earth from Space is softer than the others. ESA's new website offers only a 
 
 **More:**
 - **Show for:** how long the picture stays before Jibo's eye returns: 10 s, 30 s, 1 min, 5 min, or **Until I close it**.
-- **Slideshow:** off, or the next picture every 1, 5 or 30 minutes. A running slideshow keeps Stargazer open.
+- **Slideshow:** off, or a picture from another source every 1, 5 or 30 minutes. A running slideshow keeps Stargazer open.
 - **Read title aloud:** on or off.
 - **Show caption:** on or off.
 
@@ -91,10 +90,10 @@ stargazer/                    the @be/stargazer package (what runs on Jibo)
   lib/screen.js               the SDK view: picture layer, info overlay, menus, gestures
   lib/presenter.js            shows pictures with the effects (lib/effects/*), caption (lib/caption.js)
   lib/model.js                navigation, settings menus, "Show for" and slideshow timers
-  lib/catalog.js, sources/    the picture sources, merged newest first
+  lib/catalog.js, sources/    the picture sources; picks one source (fresh first, random) per picture
   lib/images.js, net.js       downloads into memory and decodes to textures
   lib/motion.js               "Look up" on the body
-  lib/settings.js             settings.json and seen.json
+  lib/settings.js             settings.json, seen.json and sources.json (what each source showed last)
 tests/, tools/                development only; not in the ZIP
 ```
 

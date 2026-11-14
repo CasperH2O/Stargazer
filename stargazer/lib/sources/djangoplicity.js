@@ -7,6 +7,11 @@
 // All four publish under CC BY 4.0, which needs the credit shown with the picture.
 var t = require('./text');
 
+// The catalog gives a whole source 25 s (LIST_TIMEOUT in catalog.js) and net.get waits 20 s by
+// default. A hanging feed would leave the listing ~5 s, so the source would be skipped even when the
+// listing answers: the feed gets 8 s and the listing 15 s (8 + 15 < 25).
+var FIRST = {timeoutMs: 8000}, FALLBACK = {timeoutMs: 15000};
+
 var CODE = /\/images\/((?:potm|potw|iotw)\d{4}[a-z])\/?/;
 
 // yymm or yyww as a sortable number: potm2610a -> 2610, potw2645a -> 2645.
@@ -40,12 +45,12 @@ function create(spec) {
         list: function (net, count) {
             count = count || 6;
             var problems = [];
-            return net.text(spec.feed).catch(function (e) { problems.push('feed ' + (e && e.message || e)); return ''; }).then(function (xml) {
+            return net.text(spec.feed, FIRST).catch(function (e) { problems.push('feed ' + (e && e.message || e)); return ''; }).then(function (xml) {
                 var feed = fromFeed(xml);
                 var newest = feed.length ? Math.max.apply(null, feed.map(function (i) { return i.date; })) : 0;
                 var stale = !feed.length || Date.now() - newest > 45 * 24 * 3600 * 1000;
                 if (!stale || !spec.listing) return feed;
-                return net.text(spec.listing).then(function (html) {
+                return net.text(spec.listing, FALLBACK).then(function (html) {
                     var listed = fromListing(html), known = {};
                     feed.forEach(function (i) { known[i.code] = true; });
                     return listed.filter(function (i) { return !known[i.code]; }).concat(feed);
@@ -98,4 +103,4 @@ var SOURCES = {
         page: 'https://noirlab.edu/public/images/', cdn: 'https://storage.noirlab.edu/media/archives/images'})
 };
 
-module.exports = {create: create, serial: serial, SOURCES: SOURCES};
+module.exports = {create: create, serial: serial, SOURCES: SOURCES, FIRST: FIRST, FALLBACK: FALLBACK};

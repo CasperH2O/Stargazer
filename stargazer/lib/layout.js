@@ -38,9 +38,9 @@ var pager = {x: 45, y: 670, width: 1190, height: 10};
 var dialog = {button: 264, left: 370, right: 900, centre: 640, y: 460, single: 468, caption: 640, captionSize: 45,
     body: {y: 140, size: 45, line: 56, width: 1060}, large: {y: 206, size: 50, line: 62, width: 1060},
     code: {y: 266, size: 120}};
-// Info overlay: title, meta line, description (3 lines), credit, three 150 px buttons.
+// Info overlay: title, meta line, description (3 lines), credit, one 150 px Settings button.
 var info = {title: {y: 82, size: 60}, meta: {y: 146, size: 36}, body: {y: 190, size: 36, line: 47, width: 980, lines: 3},
-    credit: {y: 352, size: 30}, buttons: {y: 480, size: 150, x: [420, 640, 860]}, caption: {y: 582, size: 36}};
+    credit: {y: 352, size: 30}, buttons: {y: 480, size: 150, x: 640}, caption: {y: 582, size: 36}};
 var hint = {y: 664, size: 30};
 
 // Paging with the stock back-fill: the last page is always full (it repeats earlier items).

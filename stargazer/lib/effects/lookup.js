@@ -14,8 +14,9 @@ function Eye(PIXI, layer, opts) {
     this.c.addChild(this.glow); this.c.addChild(this.disc);
     layer.addChild(this.c);
 }
-Eye.prototype.set = function (dx, dy, sx, sy) { this.c.position.set(this.x0 + dx, this.y0 + dy); this.c.scale.set(sx, sy); };
-Eye.prototype.destroy = function () { if (this.c) { if (this.c.parent) this.c.parent.removeChild(this.c); this.c.destroy({children: true}); this.c = null; } };
+// A glance may still run after its eye was destroyed (its picture was replaced before the reveal).
+Eye.prototype.set = function (dx, dy, sx, sy) { if (util.destroyed(this.c)) return; this.c.position.set(this.x0 + dx, this.y0 + dy); this.c.scale.set(sx, sy); };
+Eye.prototype.destroy = function () { util.dispose(this.c, {children: true}); this.c = null; };
 
 // Offsets of the glance at time t (ms): pure, tested.
 function glanceAt(t, duration, rise) {
