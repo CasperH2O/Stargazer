@@ -40,6 +40,7 @@ def check_package():
 
 def collect():
     entries = {name: (HERE / name).read_bytes() for name in STORE_FILES}
+    entries[f'{SKILL}/LICENSE'] = (HERE / 'LICENSE').read_bytes()     # the MIT licence travels with the code
     for file in sorted((HERE / SKILL).rglob('*')):
         if file.is_file() and '__pycache__' not in file.parts and not file.name.startswith('.'):
             entries[f'{SKILL}/{file.relative_to(HERE / SKILL).as_posix()}'] = file.read_bytes()

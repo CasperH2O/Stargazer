@@ -100,4 +100,4 @@ tests/, tools/                development only; not in the ZIP
 
 ## Licence
 
-No licence has been chosen yet. Until one is added, the author reserves all rights. No firmware art or fonts are included; the text uses the robot's own Proxima Nova.
+The code is under the MIT License (see `LICENSE`, also included in the skill folder of the ZIP). The licence covers Stargazer's code and its own icons. It does not cover the pictures: each picture keeps its own licence and credit (see Pictures and credits). No firmware art or fonts are included; the text uses the robot's own Proxima Nova.
