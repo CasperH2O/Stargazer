@@ -41,7 +41,7 @@ function Caption(PIXI, layer, view) {
 Caption.prototype.set = function (info) {
     fit(this.PIXI, this.title, info.title, 52, 40, MAX_W);
     fit(this.PIXI, this.line, info.line, 36, 30, MAX_W);
-    fit(this.PIXI, this.credit, info.credit || '', 30, 30, MAX_W);  // formatted by the source ("© … · CC BY 4.0", "Image: NASA")
+    fit(this.PIXI, this.credit, info.credit || '', 30, 30, MAX_W);  // formatted by sources.creditLine ("© … · CC BY 4.0")
     this.credit.visible = !!info.credit;
 };
 // Title anchor points for sparkles, in screen space.

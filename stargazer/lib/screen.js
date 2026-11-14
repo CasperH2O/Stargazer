@@ -8,7 +8,7 @@ var path = require('path');
 var layout = require('./layout'), createArt = require('./art'), createLog = require('./log');
 var Model = require('./model'), S = require('./settings'), Presenter = require('./presenter');
 var Catalog = require('./catalog'), Images = require('./images').Images, net = require('./net');
-var sources = require('./sources'), Motion = require('./motion').Motion;
+var sources = require('./sources'), Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
 var C = layout.color, P = layout.pairs, TL = layout.tiles, I = layout.info;
 
 function OWN(name) { return path.join(__dirname, '..', 'resources', 'icons', name + '.png'); }
@@ -20,11 +20,11 @@ var CLOSE_MS = 3000;         // our own limit for the view's close, shorter than
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function day(ms) { if (!ms) return ''; var d = new Date(ms); return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear(); }
 
-// deps (tests only): {store, net, Presenter, Images, Catalog, createArt, Motion, document, closeMs, watchdogMs, giveUpMs}
+// deps (tests only): {store, net, Presenter, Images, Catalog, createArt, Motion, Sounds, document, closeMs, watchdogMs, giveUpMs}
 module.exports = function createScreen(jibo, BeSkill, deps) {
     deps = deps || {};
     var PresenterClass = deps.Presenter || Presenter, ImagesClass = deps.Images || Images, CatalogClass = deps.Catalog || Catalog;
-    var makeArt = deps.createArt || createArt, MotionClass = deps.Motion || Motion;
+    var makeArt = deps.createArt || createArt, MotionClass = deps.Motion || Motion, SoundsClass = deps.Sounds || Sounds;
     var closeMs = deps.closeMs || CLOSE_MS, watchdogMs = deps.watchdogMs || WATCHDOG_MS, giveUpMs = deps.giveUpMs || GIVE_UP_MS;
     function doc() { return deps.document || (typeof document !== 'undefined' ? document : undefined); }
     function frame(fn) { return typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fn) : setTimeout(fn, 16); }
@@ -38,7 +38,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.token = 0; this.loop = null; this.retryTimer = null; this.watchdog = null;
             this.slide = {x: 0, velocity: 0, target: 0}; this.dragging = null; this.animation = null; this.pan = null; this.tapping = false;
             this.spoken = null; this.speaking = false; this.dirty = false; this.sourcesKey = null; this.store = null; this.seen = []; this.history = {};
-            this.onScreen = {}; this.current = null; this.pending = null; this.loadingSince = 0; this.openedAt = 0; this.openings = 0;
+            this.onScreen = {}; this.current = null; this.pending = null; this.sounds = null; this.loadProgress = 0; this.moves = 0; this.loadingSince = 0; this.openedAt = 0; this.openings = 0;
         }
         // Milliseconds since this opening started, for the log.
         since() { return (Date.now() - this.openedAt) + ' ms'; }
@@ -77,6 +77,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 onRetry: function () { self.start(); }
             });
             this.motion = new MotionClass(jibo, this.diagnostics);
+            this.sounds = new SoundsClass(jibo, this.diagnostics);
+            if (values.sounds) this.sounds.prepare();
             this.images = new ImagesClass({PIXI: global.PIXI, net: deps.net || net, log: this.diagnostics});
             this.catalog = new CatalogClass({net: deps.net || net, log: this.diagnostics});
             this.view = views.createView('View', this.config(views));
@@ -103,6 +105,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 this.armWatchdog(token);
             } else this.model.pause();
             var order = this.catalog.order(S.enabledSources(values), this.seen, this.history, Math.random, avoid);
+            if (!replacing) { this.loadProgress = 0; this.setProgress(0.12); }
             this.diagnostics.info('picture choice:', order.join(' > ') || 'none', '(' + this.since() + ')');
             this.trySource(order, 0, token);
         }
@@ -114,6 +117,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.catalog.list(id).then(function (items) {
                 if (token !== self.token || !self.model) return;
                 self.diagnostics.info('source', id, 'listed', items.length, 'in', (Date.now() - at) + ' ms');
+                self.setProgress(0.45);
                 // Its newest picture; the one before it only if the newest can't be loaded.
                 self.tryItem(items.slice(0, 2), 0, token, function () { self.trySource(order, n + 1, token); });
             }, function (error) {
@@ -131,6 +135,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             Promise.all([this.catalog.resolve(item), this.images.load(item)]).then(function (results) {
                 if (token !== self.token || !self.model) return;
                 self.diagnostics.info('picture', item.key, 'loaded in', (Date.now() - at) + ' ms (' + self.since() + ')');
+                self.setProgress(0.85);
                 self.present({item: item, picture: results[1], token: token});
             }, function (error) {
                 if (token !== self.token) return;
@@ -197,6 +202,19 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 pending: this.pending ? this.pending.item.key : null, base: this.model ? this.model.base : null, stack: this.model ? this.model.stack.join('/') : null,
                 images: this.images ? this.images.count() : null, loop: !!this.loop, closing: !!this.closing, leaving: this.leaving, token: this.token};
         }
+        // The eyepiece's dial lights up as loading goes on (stages: source chosen, listed, picture in).
+        setProgress(p) {
+            this.loadProgress = Math.max(this.loadProgress, p);
+            if (this.presenter) this.presenter.progress(this.loadProgress);
+        }
+        // The presenter's moments, as Jibo's telescope sounds (setting "Telescope sounds").
+        cue(name) {
+            var s = this.sounds;
+            if (!s || !this.model || !this.model.values.sounds) return;
+            if (name === 'look') s.play('tripod1', 0.8);
+            else if (name === 'move') s.play(++this.moves % 2 ? 'tripod2' : 'tripod1', 0.45);
+            else if (name === 'found') s.play('tripod2', 0.8);
+        }
         // Slideshow: another source's newest picture.
         next() {
             if (!this.model || this.model.base !== 'viewer') return;
@@ -243,6 +261,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         saved(values) {
             try { this.store.write(values); } catch (error) { this.diagnostics.warn('settings not saved:', error && error.message); }
             if (this.presenter) this.presenter.configure({effects: values.effects, showCaption: values.caption});
+            if (this.sounds && values.sounds) this.sounds.prepare();
             this.dirty = this.dirty || this.sourcesKey !== S.enabledSources(values).join(',');
         }
 
@@ -260,6 +279,36 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.leaving = true;
             this.exit({noElementsOfSurprise: true});
         }
+        // The menu tiles' icons, loaded once the menus are near (the info overlay or Settings opens)
+        // and put on each button as soon as both are there (SDK buttons are built asynchronously).
+        loadMenuIcons() {
+            var self = this, loader = jibo.loader, started = Date.now(), left = 0;
+            if (this.iconsLoading || !this.view || !loader || typeof loader.load !== 'function') return;
+            this.iconsLoading = true;
+            var view = this.view;
+            Object.keys(this.icons).forEach(function (id) {
+                var icon = self.icons[id];
+                left++;
+                try {
+                    loader.load({id: icon.src, src: icon.src, type: 'texture', complete: function (error, texture) {
+                        if (self.view !== view) return;
+                        if (error || !texture) self.diagnostics.warn('icon', id, 'not loaded:', error && error.message || error);
+                        else { icon.texture = texture; self.applyIcons(); }
+                        if (--left === 0) self.diagnostics.info('menu icons loaded in', (Date.now() - started) + ' ms');
+                    }});
+                } catch (error) { self.diagnostics.warn('icon', id + ':', error && error.message || error); }
+            });
+        }
+        applyIcons() {
+            var self = this, PIXI = global.PIXI;
+            Object.keys(this.icons || {}).forEach(function (id) {
+                var icon = self.icons[id], c;
+                if (icon.set || !icon.texture || !PIXI) return;
+                c = self.component(id);
+                if (!c || typeof c.setIcon !== 'function') return;
+                try { c.setIcon(new PIXI.Sprite(icon.texture)); icon.set = true; } catch (error) { self.diagnostics.warn('icon', id + ':', error && error.message || error); }
+            });
+        }
         tapPicture() {
             if (!this.model || this.model.top() !== 'viewer') return;
             this.model.openInfo();
@@ -275,6 +324,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         config(views) {
             var self = this, components = [];
             this.ids = []; this.cache = new Map(); this.labels = {}; this.fills = {}; this.rows = {};
+            this.icons = {}; this.iconsLoading = false;
             function callback(fn) { return {type: views.ActionData.CALLBACK, data: {callback: function () { if (self.active() && !self.dragging && !self.animation) fn(); }}}; }
             function label(id, x, y, size, width, options) {
                 options = options || {};
@@ -287,7 +337,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             }
             function tile(id, icon, x, fn) {
                 self.ids.push(id);
-                components.push({type: 'SkillButton', id: id, iconSrc: OWN('tile-' + icon), colors: P.space, position: {x: x, y: TL.y}, action: callback(fn)});
+                // No iconSrc: the view would load every menu icon before it can show anything (the
+                // black first open, user 2026-11-14). loadMenuIcons() adds them when the menus are near.
+                self.icons[id] = {src: OWN('tile-' + icon), texture: null, set: false};
+                components.push({type: 'SkillButton', id: id, colors: P.space, position: {x: x, y: TL.y}, action: callback(fn)});
             }
             function action(id, icon, colors, cx, cy, size, fn) {
                 self.ids.push(id);
@@ -327,8 +380,6 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             label('body', 640, layout.dialog.large.y - 40, layout.dialog.large.size - 5, layout.dialog.large.width, {lines: 2, line: layout.dialog.large.line});
             action('btn-retry', 'refresh', P.confirm, 640, layout.dialog.single, layout.dialog.button, function () { self.press('retry'); });
             label('cap-retry', 640, layout.dialog.caption + (layout.dialog.single - layout.dialog.y), layout.dialog.captionSize, 400);
-            // Loading.
-            label('hint', 640, 620, 45, layout.title.width, {fill: C.muted});
             return {viewConfig: {type: 'View', id: 'stargazer', category: 'gui', ignoreSwipeDown: true, transitionStageOnly: true}, componentConfigs: components};
         }
         // Buttons are built once their icons load, after the view opens: a component not there
@@ -387,8 +438,9 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (vm.screen === 'info' && vm.picture) this.renderInfo(vm.picture, on);
             if (vm.body) { this.text('body', vm.body); on('body'); }
             if (vm.button) { on('btn-' + vm.button.kind); this.text('cap-' + vm.button.kind, vm.button.caption); on('cap-' + vm.button.kind); }
-            if (vm.hint) { this.text('hint', vm.hint); on('hint'); }
             this.ids.forEach(function (id) { self.show(id, !!want[id]); });
+            if (vm.screen !== 'viewer' && vm.screen !== 'loading' && vm.screen !== 'offline') this.loadMenuIcons();   // info overlay or a menu
+            this.applyIcons();
             // The picture layer: hidden under menus and the offline screen, dimmed under the info overlay.
             if (this.decor) {
                 this.decor.root.visible = !menu && vm.screen !== 'offline';
@@ -451,9 +503,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 view: {w: 1280, h: 720}, effects: this.model.values.effects, showCaption: this.model.values.caption, document: doc(),
                 onLookUp: function (direction) { self.motion.move(direction); },
                 onRetire: function (texture) { self.retired(texture); },
+                onCue: function (name) { self.cue(name); },
                 onShown: function () { self.shown(); }
             });
-            if (this.model.base === 'loading') this.presenter.wait();
+            if (this.model.base === 'loading') { this.presenter.wait(); this.presenter.progress(this.loadProgress); }
             this.rest = {};     // where each list component sits at rest (place() offsets it); recorded on first use
             var last = Date.now(), checked = last, errors = 0;
             var token = this.loop = {};
@@ -553,6 +606,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.token++; this.loop = null; this.pending = null;
             clearTimeout(this.retryTimer); this.retryTimer = null;
             this.disarmWatchdog();
+            if (this.sounds) { this.sounds.close(); this.sounds = null; }
             this.panning(false); this.animation = null; this.dragging = null; this.slide = {x: 0, velocity: 0, target: 0};
             this.stopSpeaking();
             if (this.motion) this.motion.close();

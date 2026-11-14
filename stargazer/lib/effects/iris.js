@@ -34,8 +34,8 @@ Iris.prototype.draw = function () {
     this.ring.clear();
     var a = 1 - util.ease.inCubic(k);                        // the ring fades as the lens opens
     if (a > 0.01) {
-        this.ring.lineStyle(14, 0x6fb7ff, 0.18 * a); this.ring.drawCircle(this.cx, this.cy, r + 6);
-        this.ring.lineStyle(5, 0xd8ecff, 0.85 * a); this.ring.drawCircle(this.cx, this.cy, r);
+        this.ring.lineStyle(14, 0x11CCDD, 0.2 * a); this.ring.drawCircle(this.cx, this.cy, r + 6);     // eyepiece palette (effects/eyepiece.js)
+        this.ring.lineStyle(5, 0x22EEFF, 0.85 * a); this.ring.drawCircle(this.cx, this.cy, r);
     }
     return r;
 };

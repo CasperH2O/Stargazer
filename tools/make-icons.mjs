@@ -31,8 +31,8 @@ mkdirSync(ICONS, { recursive: true });
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.argv[2] || 'playwright');
 
-const TILES = ['apod', 'hubble', 'webb', 'eso', 'noirlab', 'iotd', 'epic', 'efs', 'kenburns', 'iris', 'lookup', 'starfield',
-  'speak', 'caption', 'slideshow', 'layers', 'timer'];
+const TILES = ['hubble', 'webb', 'noirlab', 'kenburns', 'iris', 'lookup', 'starfield',
+  'speak', 'caption', 'slideshow', 'layers', 'timer', 'sound'];
 const ACTIONS = ['gear', 'refresh'];
 // [file, canvas w, h, glyph box, glyph x, glyph y, shadow length, glyph name]
 // Tiles and icon.png pass null for x/y: the glyph's measured opaque box is centred on TILE_CENTRE.

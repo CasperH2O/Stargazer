@@ -62,15 +62,16 @@ export function createPixi() {
     }
   }
   class Graphics extends Container {
-    constructor() { super(); this.graphicsData = []; made.graphics.push(this); }
-    clear() { this.graphicsData.length = 0; return this; }
+    constructor() { super(); this.graphicsData = []; this.circles = []; made.graphics.push(this); }
+    clear() { this.graphicsData.length = 0; this.circles.length = 0; return this; }
     lineStyle() { return this; }
     beginFill() { return this; }
     endFill() { return this; }
     moveTo() { return this; }
-    lineTo() { return this; }
+    lineTo() { this.graphicsData.push('line'); return this; }
+    closePath() { return this; }
     arc() { this.graphicsData.push('arc'); return this; }
-    drawCircle() { this.graphicsData.push('circle'); return this; }
+    drawCircle(x, y, r) { this.graphicsData.push('circle'); this.circles.push({ x, y, r }); return this; }
     drawPolygon() { this.graphicsData.push('poly'); return this; }
     drawRect() { this.graphicsData.push('rect'); return this; }
     destroy(options) {
@@ -96,20 +97,22 @@ export function createPixi() {
       this.width = (s && (s.naturalWidth || s.width)) || 1; this.height = (s && (s.naturalHeight || s.height)) || 1;
       this.destroyed = 0; made.textures.push(this);
     }
-    static fromCanvas(canvas) { const t = new Texture(new BaseTexture(canvas)); t.fromCanvas = true; return t; }
+    static fromCanvas(canvas) { const t = new Texture(new BaseTexture(canvas)); t.fromCanvas = true; t.canvas = canvas; return t; }
     destroy(base) { this.destroyed++; if (base && this.baseTexture) this.baseTexture.destroy(); this.baseTexture = null; }
   }
   const PIXI = { Container, Sprite, Graphics, Text, Texture, BaseTexture, Point, SCALE_MODES: { LINEAR: 1, NEAREST: 0 } };
   return { PIXI, made };
 }
 
-// A 2D canvas stand-in (caption gradient, presenter backdrop).
-export function createDocument() {
+// A 2D canvas stand-in (caption gradient, presenter backdrop and focus pull). With {filter: true}
+// the context has ctx.filter (canvas blur(), Chromium 52+); filters lists what was drawn with.
+export function createDocument({ filter = false } = {}) {
   const ctx = {
     createLinearGradient: () => ({ addColorStop() {} }),
-    fillRect() {}, drawImage() {}, fillStyle: null,
+    fillRect() {}, drawImage() { if (filter) ctx.filters.push(ctx.filter); }, fillStyle: null, filters: [],
   };
-  return { createElement: (tag) => ({ tag, width: 0, height: 0, getContext: () => ctx }) };
+  if (filter) ctx.filter = 'none';
+  return { ctx, createElement: (tag) => ({ tag, width: 0, height: 0, getContext: () => ctx }) };
 }
 
 // A picture texture as images.js would hand it over (an <img> as the base texture's source).

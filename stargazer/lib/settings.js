@@ -9,20 +9,23 @@
 var fs = require('fs'), path = require('path');
 
 var NAME = 'stargazer';
-var SOURCES = ['apod', 'hubble', 'webb', 'eso', 'noirlab', 'nasa-iotd', 'epic', 'esa-efs'];
+// APOD, NASA Image of the Day, NASA EPIC, ESO and ESA Earth from Space were removed (2026-11-14:
+// their TLS chains need root certificates newer than the robot's Node 6); clean() drops their old keys.
+var SOURCES = ['hubble', 'webb', 'noirlab'];
 var EFFECTS = ['kenBurns', 'iris', 'lookUp', 'starfield'];
 var SHOW_FOR = [10, 30, 60, 300, 0];   // seconds before Jibo's eye returns; 0 = until closed
 var SLIDESHOW = [0, 1, 5, 30];         // minutes between pictures; 0 = off
 var SEEN_MAX = 300;
 
 var DEFAULTS = {
-    sources: {apod: true, hubble: true, webb: true, eso: true, noirlab: true, 'nasa-iotd': true, epic: true, 'esa-efs': false},
+    sources: {hubble: true, webb: true, noirlab: true},
     // Calmer defaults (user, 2026-11-14): the pan-and-zoom and the iris; look-up and starfield off.
     effects: {kenBurns: true, iris: true, lookUp: false, starfield: false},
     showFor: 10,
     slideshow: 0,
     readTitle: true,       // the title only, never the description
-    caption: true
+    caption: true,
+    sounds: true           // Jibo's telescope sounds while the eyepiece searches (0.4.0)
 };
 
 function copyDefaults() { return JSON.parse(JSON.stringify(DEFAULTS)); }
@@ -41,7 +44,8 @@ function clean(values) {
         showFor: SHOW_FOR.indexOf(given.showFor) >= 0 ? given.showFor : d.showFor,
         slideshow: SLIDESHOW.indexOf(given.slideshow) >= 0 ? given.slideshow : d.slideshow,
         readTitle: typeof given.readTitle === 'boolean' ? given.readTitle : d.readTitle,
-        caption: typeof given.caption === 'boolean' ? given.caption : d.caption
+        caption: typeof given.caption === 'boolean' ? given.caption : d.caption,
+        sounds: typeof given.sounds === 'boolean' ? given.sounds : d.sounds
     };
     if (!SOURCES.some(function (id) { return out.sources[id]; })) out.sources = copyDefaults().sources;
     return out;

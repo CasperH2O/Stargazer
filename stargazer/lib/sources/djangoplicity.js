@@ -1,10 +1,10 @@
 'use strict';
-// ESA/Hubble, ESA/Webb, ESO and NOIRLab run the same image archive (djangoplicity), so one module
-// covers all four. The newest code comes from the RSS feed or, when the feed is stale or empty
+// ESA/Hubble, ESA/Webb and NOIRLab run the same image archive (djangoplicity), so one module
+// covers all three. The newest code comes from the RSS feed or, when the feed is stale or empty
 // (Hubble's stopped at Dec 2025 when it went monthly; Webb's came back empty once), from the
 // listing page. The image is the archive's 1280 px "screen" JPEG. Name, constellation, distance and
 // the credit come from the image page when the picture is about to be shown (resolve).
-// All four publish under CC BY 4.0, which needs the credit shown with the picture.
+// All three publish under CC BY 4.0, which needs the credit shown with the picture.
 var t = require('./text');
 
 // The catalog gives a whole source 25 s (LIST_TIMEOUT in catalog.js) and net.get waits 20 s by
@@ -95,9 +95,6 @@ var SOURCES = {
     webb: create({id: 'webb', label: 'ESA/Webb', short: 'ESA/Webb', telescope: 'Webb',
         feed: 'https://esawebb.org/images/potm/feed/', listing: 'https://esawebb.org/images/potm/',
         page: 'https://esawebb.org/images/', cdn: 'https://cdn.esawebb.org/archives/images'}),
-    eso: create({id: 'eso', label: 'ESO', short: 'ESO', telescope: 'ESO',
-        feed: 'https://www.eso.org/public/images/potw/feed/', listing: 'https://www.eso.org/public/images/potw/',
-        page: 'https://www.eso.org/public/images/', cdn: 'https://cdn.eso.org/images'}),
     noirlab: create({id: 'noirlab', label: 'NOIRLab', short: 'NOIRLab', telescope: 'NOIRLab',
         feed: 'https://noirlab.edu/public/images/iotw/feed/', listing: 'https://noirlab.edu/public/images/iotw/',
         page: 'https://noirlab.edu/public/images/', cdn: 'https://storage.noirlab.edu/media/archives/images'})

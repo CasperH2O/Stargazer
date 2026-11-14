@@ -1,4 +1,4 @@
-// Pure parts of the effects: Ken Burns plans, iris radius, look-up glance, starfield helpers.
+// Pure parts of the effects: Ken Burns plans, iris radius, look-up glance, starfield helpers, eyepiece search path.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -9,6 +9,7 @@ const kb = require('../stargazer/lib/effects/kenburns.js');
 const iris = require('../stargazer/lib/effects/iris.js');
 const lookup = require('../stargazer/lib/effects/lookup.js');
 const star = require('../stargazer/lib/effects/starfield.js');
+const eyepiece = require('../stargazer/lib/effects/eyepiece.js');
 
 const VIEW = { w: 1280, h: 720 };
 const IMAGES = { landscape: { w: 1280, h: 853 }, portrait: { w: 1280, h: 1920 }, square: { w: 1080, h: 1080 }, small: { w: 660, h: 456 }, panorama: { w: 1280, h: 400 } };
@@ -69,4 +70,128 @@ test('starfield helpers', () => {
   assert.equal(s.length, 100);
   assert.ok(s.every((x) => x.d > 0 && x.d <= 1 && x.size >= 1));
   assert.equal(star.sparklePoints(0, 0, 10).length, 16);
+});
+
+// The search path: glides to random spots inside an ellipse (ax x ay around (0, cy)), pausing at each.
+const inEllipse = (p, ax, ay, cy = 0) => (p.dx / ax) ** 2 + ((p.dy - cy) / ay) ** 2 <= 1 + 1e-9;
+const sample = (path, ms, step = 16) => { const out = []; for (let t = 0; t <= ms; t += step) out.push(Object.assign({ t }, path.at(t))); return out; };
+// The presenter's sky band near the top of the screen (presenter.js SKY_Y, SEARCH).
+const SKY = { ax: 300, ay: 15, cy: -95 };
+const PATHS = [
+  [undefined, 300, 100, 0, { dx: 0, dy: 0 }],
+  [{ ax: 120, ay: 40 }, 120, 40, 0, { dx: 0, dy: 0 }],
+  [{ ...SKY, from: { dx: 0, dy: 0 } }, 300, 15, -95, { dx: 0, dy: 0 }],             // no Look up: from the centre
+  [{ ...SKY, from: { dx: 0, dy: -95 } }, 300, 15, -95, { dx: 0, dy: -95 }],          // after the glance
+  [{ ...SKY, from: { dx: 40, dy: -88 } }, 300, 15, -95, { dx: 40, dy: -88 }],
+];
+
+test('eyepiece search path starts where it is told and moves continuously, into and then inside its ellipse', () => {
+  for (const [opts, ax, ay, cy, from] of PATHS) {
+    for (let seed = 1; seed <= 20; seed++) {
+      const path = new eyepiece.SearchPath(util.rng(seed), opts);
+      const start = path.at(0);
+      assert.ok(Math.abs(start.dx - from.dx) < 1e-9 && Math.abs(start.dy - from.dy) < 1e-9, JSON.stringify(start));
+      assert.equal(start.move, 0);
+      assert.equal(start.moving, true, 'it sets off at once');
+      assert.deepEqual(path.segs[0].from, from, 'the first glide starts at opts.from');
+      const first = path.segs[0];
+      let prev = start, maxR = 0;
+      for (const p of sample(path, 60000)) {
+        assert.ok(Number.isFinite(p.dx) && Number.isFinite(p.dy));
+        if (p.t >= first.t1) assert.ok(inEllipse(p, ax, ay, cy), `seed ${seed} t=${p.t}: ${p.dx},${p.dy}`);
+        else {
+          // The first glide runs straight from the start to a spot in the ellipse.
+          const between = (v, a, b) => v >= Math.min(a, b) - 1e-9 && v <= Math.max(a, b) + 1e-9;
+          assert.ok(between(p.dx, first.from.dx, first.to.dx) && between(p.dy, first.from.dy, first.to.dy), `seed ${seed} t=${p.t}: off the first glide`);
+        }
+        // Fastest glide: inOutCubic peaks at 3x the mean speed, which is dist / (900 + 2.2 dist) < 1/2.2 px/ms.
+        assert.ok(Math.hypot(p.dx - prev.dx, p.dy - prev.dy) <= 3 * 16 / 2.2 + 1e-9, `seed ${seed}: jump at t=${p.t}`);
+        if (p.t >= first.t1) maxR = Math.max(maxR, Math.abs(p.dx / ax));
+        prev = p;
+      }
+      assert.ok(maxR > 0.6, `seed ${seed}: it does look around sideways (${maxR})`);
+    }
+  }
+});
+
+test('eyepiece search path in the sky band stays within dx ±ax and cy ±ay for a long run', () => {
+  for (let seed = 1; seed <= 30; seed++) {
+    const path = new eyepiece.SearchPath(util.rng(seed), { ...SKY, from: { dx: 0, dy: SKY.cy } });
+    let minDy = Infinity, maxDy = -Infinity;
+    for (const p of sample(path, 180000, 20)) {
+      assert.ok(Math.abs(p.dx) <= SKY.ax + 1e-6, `seed ${seed} t=${p.t}: dx ${p.dx}`);
+      assert.ok(Math.abs(p.dy - SKY.cy) <= SKY.ay + 1e-6, `seed ${seed} t=${p.t}: dy ${p.dy}`);
+      minDy = Math.min(minDy, p.dy); maxDy = Math.max(maxDy, p.dy);
+    }
+    assert.ok(maxDy - minDy > 5, `seed ${seed}: it moves up and down a little too (${minDy}..${maxDy})`);
+    for (const g of path.segs) {
+      const k = Math.hypot(g.to.dx / SKY.ax, (g.to.dy - SKY.cy) / SKY.ay);
+      assert.ok(k >= 0.45 - 1e-9 && k <= 1 + 1e-9, `spot at ${k} of the ellipse`);
+    }
+  }
+});
+
+test('eyepiece search path pauses between glides and counts them up', () => {
+  for (const opts of [undefined, { ...SKY, from: { dx: 0, dy: 0 } }]) {
+    for (let seed = 1; seed <= 20; seed++) {
+      const path = new eyepiece.SearchPath(util.rng(seed), opts);
+      const s = sample(path, 60000, 10);
+      let pauses = 0, holdStart = -1, last = s[0];
+      for (const p of s.slice(1)) {
+        assert.ok(p.move === last.move || p.move === last.move + 1, `seed ${seed}: move ${last.move} -> ${p.move}`);
+        if (p.move === last.move + 1) {
+          assert.equal(last.moving, false, 'a new glide starts only after a pause');
+          assert.ok(p.moving);
+        }
+        if (!p.moving) {
+          if (last.moving) { holdStart = p.t; pauses++; }
+          else assert.ok(p.dx === last.dx && p.dy === last.dy, 'stands still while pausing');
+        }
+        if (p.moving && !last.moving && holdStart >= 0) {
+          const hold = p.t - holdStart;
+          assert.ok(hold >= 350 - 10 && hold <= 1050 + 10, `seed ${seed}: pause of ${hold} ms`);
+        }
+        last = p;
+      }
+      assert.ok(pauses >= 15, `seed ${seed}: ${pauses} pauses in a minute`);
+      assert.ok(last.move >= 15);
+      // Glides take 900 ms plus 2.2 ms per pixel.
+      for (const g of path.segs) {
+        const dist = Math.hypot(g.to.dx - g.from.dx, g.to.dy - g.from.dy);
+        assert.ok(Math.abs(g.t1 - g.t0 - (900 + 2.2 * dist)) < 1e-6);
+        assert.ok(g.t2 - g.t1 >= 350 && g.t2 - g.t1 <= 1050);
+      }
+    }
+  }
+});
+
+test('eyepiece search path never picks a spot close sideways to the last one', () => {
+  for (const [opts, ax, ay, cy] of [[undefined, 300, 100, 0], [{ ...SKY, from: { dx: 0, dy: 0 } }, 300, 15, -95], [{ ...SKY, from: { dx: 0, dy: -95 } }, 300, 15, -95]]) {
+    let close = 0, total = 0;
+    for (let seed = 1; seed <= 50; seed++) {
+      const path = new eyepiece.SearchPath(util.rng(seed), opts);
+      path.at(120000);
+      for (let i = 0; i < path.segs.length; i++) {
+        const g = path.segs[i];
+        if (i > 0) assert.deepEqual(g.from, path.segs[i - 1].to, 'each glide starts where the last ended');
+        assert.ok(inEllipse(g.to, ax, ay, cy));
+        total++;
+        // Apart sideways: the band can be flat, so the vertical distance does not count.
+        if (Math.abs(g.to.dx - g.from.dx) / ax < 0.45) close++;
+      }
+    }
+    // 12 tries per spot: a spot too close to the last one only when all 12 were.
+    assert.ok(close / total < 0.01, `${close} of ${total} spots too close`);
+  }
+});
+
+test('eyepiece search path is reproducible for a seed and independent of how it is sampled', () => {
+  for (const opts of [undefined, { ...SKY, from: { dx: 0, dy: 0 } }]) {
+    const a = new eyepiece.SearchPath(util.rng(11), opts), b = new eyepiece.SearchPath(util.rng(11), opts), c = new eyepiece.SearchPath(util.rng(12), opts);
+    const fine = sample(a, 30000, 16), coarse = [];
+    for (let t = 0; t <= 30000; t += 16 * 7) coarse.push(Object.assign({ t }, b.at(t)));
+    for (const p of coarse) assert.deepEqual(p, fine[p.t / 16]);
+    assert.deepEqual(a.segs, b.segs.slice(0, a.segs.length));
+    assert.notDeepEqual(sample(c, 30000, 16), fine, 'another seed, another path');
+  }
 });

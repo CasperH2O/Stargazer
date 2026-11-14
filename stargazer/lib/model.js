@@ -14,13 +14,12 @@ var REAL_TIMERS = {setTimeout: function (fn, ms) { return setTimeout(fn, ms); },
 var C = L.color;
 
 var TEXT = {
-    settings: 'Settings', settingsStatus: 'Stargazer · a new picture every day',
+    settings: 'Settings', settingsStatus: 'Stargazer · the newest pictures of the sky',
     sources: 'Sources', sourcesStatus: 'Pictures come from the sources that are on', lastSource: 'At least one source has to stay on',
     effects: 'Effects', effectsStatus: 'How a new picture appears',
-    more: 'More', moreStatus: 'Timing and voice',
-    on: 'On', offTap: 'Off · tap to turn on', experimental: 'Off · experimental',
-    loading: 'Looking at the sky…',
-    offlineTitle: 'Can\'t reach the sky', offlineBody: 'Jibo couldn\'t get today\'s picture.\nCheck his internet connection.', retry: 'Try again'
+    more: 'More', moreStatus: 'Timing and sound',
+    on: 'On', offTap: 'Off · tap to turn on',
+    offlineTitle: 'Can\'t reach the sky', offlineBody: 'Jibo couldn\'t get a picture.\nCheck his internet connection.', retry: 'Try again'
 };
 var EFFECTS = [
     {id: 'kenBurns', label: 'Ken Burns', icon: 'kenburns'},
@@ -32,14 +31,15 @@ var MORE = [
     {id: 'showFor', label: 'Show for', icon: 'timer'},
     {id: 'slideshow', label: 'Slideshow', icon: 'slideshow'},
     {id: 'readTitle', label: 'Read title aloud', icon: 'speak'},
-    {id: 'caption', label: 'Show caption', icon: 'caption'}
+    {id: 'caption', label: 'Show caption', icon: 'caption'},
+    {id: 'sounds', label: 'Telescope sounds', icon: 'sound'}
 ];
 var HUB = [
     {id: 'sources', label: 'Sources', icon: 'layers'},
     {id: 'effects', label: 'Effects', icon: 'starfield'},
     {id: 'more', label: 'More', icon: 'slideshow'}
 ];
-var SOURCE_ICON = {apod: 'apod', hubble: 'hubble', webb: 'webb', eso: 'eso', noirlab: 'noirlab', 'nasa-iotd': 'iotd', epic: 'epic', 'esa-efs': 'efs'};
+var SOURCE_ICON = {hubble: 'hubble', webb: 'webb', noirlab: 'noirlab'};
 
 function showForText(seconds) {
     return seconds === 0 ? 'Until I close it' : seconds < 60 ? seconds + ' seconds' : seconds === 60 ? '1 minute' : seconds / 60 + ' minutes';
@@ -115,17 +115,16 @@ class Model {
         else if (list === 'more') {
             if (id === 'showFor') this.apply(S.nextShowFor(this.values));
             else if (id === 'slideshow') this.apply(S.nextSlideshow(this.values));
-            else if (id === 'readTitle' || id === 'caption') this.apply(S.toggle(this.values, id));
+            else if (id === 'readTitle' || id === 'caption' || id === 'sounds') this.apply(S.toggle(this.values, id));
         }
     }
 
     // ---------- what the screen draws ----------
     listItems(list) {
         var v = this.values;
-        function onOff(on, offText) { return on ? {caption: TEXT.on, captionColor: C.success, dim: false} : {caption: offText || TEXT.offTap, captionColor: C.caption, dim: true}; }
+        function onOff(on) { return on ? {caption: TEXT.on, captionColor: C.success, dim: false} : {caption: TEXT.offTap, captionColor: C.caption, dim: true}; }
         if (list === 'sources') return S.SOURCES.map(function (id) {
-            var s = sources.get(id), state = onOff(v.sources[id], s.experimental ? TEXT.experimental : null);
-            return Object.assign({id: id, label: s.label, icon: SOURCE_ICON[id]}, state);
+            return Object.assign({id: id, label: sources.get(id).label, icon: SOURCE_ICON[id]}, onOff(v.sources[id]));
         });
         if (list === 'effects') return EFFECTS.map(function (e) { return Object.assign({id: e.id, label: e.label, icon: e.icon}, onOff(v.effects[e.id])); });
         return MORE.map(function (m) {
@@ -152,9 +151,7 @@ class Model {
                 canBack: start > 0, canForward: start < L.pageStart(L.pages(count) - 1, count)};
         } else if (top === 'offline') {
             vm.title = TEXT.offlineTitle; vm.titleColor = C.danger; vm.body = TEXT.offlineBody; vm.button = {kind: 'retry', caption: TEXT.retry};
-        } else if (top === 'loading') {
-            vm.hint = TEXT.loading;
-        }
+        }   // loading: no text, the eyepiece says it all (user, 2026-11-14)
         if (this.notice) { vm.status = this.notice.text; vm.statusColor = this.notice.color; }
         return vm;
     }

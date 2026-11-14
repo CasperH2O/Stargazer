@@ -6,12 +6,20 @@ import { join } from 'node:path';
 import { lib } from './helpers.mjs';
 const S = lib('settings.js');
 
-test('defaults: calm effects, 10 s, no slideshow, read title, ESA Earth from Space off', () => {
+test('defaults: calm effects, 10 s, no slideshow, read title, every source on', () => {
   const v = S.clean();
   assert.deepEqual(v.effects, { kenBurns: true, iris: true, lookUp: false, starfield: false });
   assert.equal(v.showFor, 10); assert.equal(v.slideshow, 0); assert.equal(v.readTitle, true); assert.equal(v.caption, true);
-  assert.equal(v.sources['esa-efs'], false);
-  assert.equal(S.enabledSources(v).length, 7);
+  assert.deepEqual(v.sources, { hubble: true, webb: true, noirlab: true });
+  assert.deepEqual(S.enabledSources(v), ['hubble', 'webb', 'noirlab']);
+});
+
+test('an old settings.json with removed sources (APOD, ESO, NASA, EPIC, ESA Earth from Space) still loads', () => {
+  const old = { apod: true, hubble: false, webb: true, eso: true, noirlab: false, 'nasa-iotd': true, epic: true, 'esa-efs': false };
+  assert.deepEqual(S.clean({ sources: old }).sources, { hubble: false, webb: true, noirlab: false });
+  // Only removed sources on: the remaining ones fall back to their defaults rather than all off.
+  const onlyRemoved = S.clean({ sources: { apod: true, hubble: false, webb: false, eso: true, noirlab: false, epic: true } });
+  assert.deepEqual(onlyRemoved.sources, { hubble: true, webb: true, noirlab: true });
 });
 
 test('clean() drops unknown keys and bad values, and never allows zero sources', () => {
@@ -21,10 +29,10 @@ test('clean() drops unknown keys and bad values, and never allows zero sources',
 });
 
 test('the last source on cannot be turned off', () => {
-  let v = S.clean({ sources: { apod: true, hubble: false, webb: false, eso: false, noirlab: false, 'nasa-iotd': false, epic: false, 'esa-efs': false } });
-  const r = S.toggleSource(v, 'apod');
+  let v = S.clean({ sources: { hubble: true, webb: false, noirlab: false } });
+  const r = S.toggleSource(v, 'hubble');
   assert.equal(r.refused, 'lastSource');
-  assert.equal(S.toggleSource(v, 'eso').values.sources.eso, true);
+  assert.equal(S.toggleSource(v, 'noirlab').values.sources.noirlab, true);
 });
 
 test('Show for and slideshow cycle through their steps; a slideshow keeps it open', () => {
@@ -50,11 +58,12 @@ test('store: atomic private settings.json, capped seen.json, per-source history,
   assert.equal(seen.length, S.SEEN_MAX);
   assert.equal(store.seen().length, S.SEEN_MAX);
   assert.deepEqual(store.history(), {});
-  let h = store.remember({}, { source: 'apod', key: 'apod:2026-11-14', date: 5 }, 7);
-  h = store.remember(h, { source: 'eso', key: 'eso:potw1', date: undefined }, 8);
-  assert.deepEqual(store.history(), { apod: { key: 'apod:2026-11-14', date: 5, at: 7 }, eso: { key: 'eso:potw1', date: 0, at: 8 } });
-  writeFileSync(join(root, 'sources.json'), JSON.stringify({ apod: { key: 3 }, bogus: { key: 'x' }, eso: { key: 'e', date: 'NaN' } }));
-  assert.deepEqual(store.history(), { eso: { key: 'e', date: 0, at: 0 } });
+  let h = store.remember({}, { source: 'hubble', key: 'hubble:potm2610a', date: 5 }, 7);
+  h = store.remember(h, { source: 'noirlab', key: 'noirlab:iotw2645a', date: undefined }, 8);
+  assert.deepEqual(store.history(), { hubble: { key: 'hubble:potm2610a', date: 5, at: 7 }, noirlab: { key: 'noirlab:iotw2645a', date: 0, at: 8 } });
+  // A removed source (apod) is dropped like an unknown one.
+  writeFileSync(join(root, 'sources.json'), JSON.stringify({ webb: { key: 3 }, bogus: { key: 'x' }, apod: { key: 'apod:old', date: 1 }, noirlab: { key: 'e', date: 'NaN' } }));
+  assert.deepEqual(store.history(), { noirlab: { key: 'e', date: 0, at: 0 } });
   assert.deepEqual(readdirSync(root).sort(), ['seen.json', 'settings.json', 'sources.json']);
   writeFileSync(join(root, 'settings.json'), 'not json');
   assert.deepEqual(store.read(), S.clean());

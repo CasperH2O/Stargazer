@@ -5,7 +5,7 @@
 // A source is "fresh" when we know without downloading that it has a picture not shown yet:
 //  - its list is still in memory (fetched less than an hour ago) and its newest picture is unseen, or
 //  - its list is not in memory and either it never showed a picture here, or its publishing
-//    cadence (daily / weekly / monthly) has passed since the newest picture it last showed.
+//    cadence (weekly / monthly) has passed since the newest picture it last showed.
 // Fresh sources are tried first, in random order, then the others (so something still shows when
 // nothing new is out). Only the chosen source's list is fetched; a source that fails is skipped
 // (and logged) and the next one is tried by the caller.
@@ -17,7 +17,7 @@ var sources = require('./sources');
 
 var PER_SOURCE = 3, FRESH_MS = 60 * 60 * 1000, LIST_TIMEOUT = 25000, DAY = 24 * 60 * 60 * 1000;
 // How often each source publishes a new picture, in days (notes/SOURCES.md).
-var CADENCE_DAYS = {apod: 1, 'nasa-iotd': 1, epic: 1, eso: 7, noirlab: 7, 'esa-efs': 7, hubble: 30, webb: 30};
+var CADENCE_DAYS = {noirlab: 7, hubble: 30, webb: 30};
 var memory = {};   // source id -> {at, items}  (module level: survives closing and reopening)
 
 function withTimeout(promise, ms, timers) {

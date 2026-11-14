@@ -52,13 +52,14 @@ test('swipe down: menus go back one level, the picture leaves', () => {
 });
 
 test('menus: captions, refusal notice, cycling More', () => {
-  const { model, events } = setup({ sources: { apod: true, hubble: false, webb: false, eso: false, noirlab: false, 'nasa-iotd': false, epic: false, 'esa-efs': false } });
+  const { model, events } = setup({ sources: { hubble: true, webb: false, noirlab: false } });
   model.viewing(ITEM, {}); model.openSettings(); model.tapHub('sources');
-  model.tapItem('sources', 'apod');
+  assert.deepEqual(model.view().tiles.items.map((i) => [i.id, i.icon]), [['hubble', 'hubble'], ['webb', 'webb'], ['noirlab', 'noirlab']]);
+  model.tapItem('sources', 'hubble');
   let vm = model.view();
   assert.equal(vm.status, 'At least one source has to stay on');
-  assert.equal(vm.tiles.items.find((i) => i.id === 'apod').caption, 'On');
-  assert.equal(vm.tiles.items.find((i) => i.id === 'esa-efs').caption, 'Off · experimental');
+  assert.equal(vm.tiles.items.find((i) => i.id === 'hubble').caption, 'On');
+  assert.equal(vm.tiles.items.find((i) => i.id === 'webb').caption, 'Off · tap to turn on');
   assert.deepEqual(events, []);
   model.back(); model.tapHub('more');
   model.tapItem('more', 'showFor');
@@ -77,7 +78,7 @@ test('settings hub summarises; offline shows a retry', () => {
   const { model } = setup();
   model.viewing(ITEM, {}); model.openSettings();
   const vm = model.view();
-  assert.deepEqual(vm.tiles.items.map((i) => i.caption), ['7 of 8 on', '2 of 4 on', 'Show for 10 seconds']);
+  assert.deepEqual(vm.tiles.items.map((i) => i.caption), ['3 of 3 on', '2 of 4 on', 'Show for 10 seconds']);
   model.offline();
   assert.equal(model.view().button.kind, 'retry');
 });

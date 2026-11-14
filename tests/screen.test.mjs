@@ -40,7 +40,7 @@ function harness(over = {}) {
   const presenters = [];
   class Presenter {
     constructor(PIXI, root, opts) { this.opts = opts; this.shows = []; this.updates = 0; presenters.push(this); }
-    wait() {} configure() {} cover() {}
+    wait() {} configure() {} cover() {} progress(p) { this.lastProgress = p; }
     show(texture, info) { this.shows.push({ texture, info }); this.opts.onShown(); }
     update() { this.updates++; if (over.updateThrows && this.updates <= over.updateThrows) throw new Error('boom'); }
     destroy() { this.destroyed = true; }
@@ -57,11 +57,11 @@ function harness(over = {}) {
     list(id) { const l = lists[id]; return l instanceof Error ? Promise.reject(l) : Promise.resolve(l); }
     resolve(item) { return Promise.resolve(item); }
   }
-  const store = { read: () => S.clean(), write: (v) => v, seen: () => [], history: () => ({}), markSeen: (l, k) => l.concat([k]), remember: (h, item) => ({ ...h, [item.source]: { key: item.key } }) };
+  const store = { read: () => S.clean(over.values), write: (v) => v, seen: () => [], history: () => ({}), markSeen: (l, k) => l.concat([k]), remember: (h, item) => ({ ...h, [item.source]: { key: item.key } }) };
   class BeSkill { constructor() { this.log = { info: (t) => log.push(t), warn: (t) => log.push(t), error: (t) => log.push(t) }; } exit(o) { this.exited = o; } destroy(done) { done(); } }
   const Skill = createScreen(jibo, BeSkill, {
     store, Presenter, Images, Catalog, createArt: () => ({ pill: () => ({}), destroy() {} }), document: {},
-    Motion: class { move() {} close() {} }, closeMs: 50, watchdogMs: 20, giveUpMs: 60
+    Motion: class { move() {} close() {} }, Sounds: over.Sounds, closeMs: 50, watchdogMs: 20, giveUpMs: 60
   });
   return { jibo, views: jibo.face.views, skill: new Skill(), presenters, log, orders };
 }
@@ -170,4 +170,32 @@ test('one source per picture: a failing source falls back to another; the slides
   skill.next(); await settle();
   assert.deepEqual(orders, [null, 'b']);
   const again = close(skill); await settle(); views.calls[1].onComplete(); await again;
+});
+
+test('the presenter\'s cues play the tripod sounds while "Telescope sounds" is on; search and reveal are silent', async () => {
+  for (const on of [true, false]) {
+    const made = [];
+    class Sounds {
+      constructor(jibo) { this.plays = []; this.prepared = 0; this.closed = false; made.push(this); }
+      prepare() { this.prepared++; return Promise.resolve(); }
+      play(name, volume) { this.plays.push([name, volume]); }
+      close() { this.closed = true; }
+    }
+    const { jibo, views, skill, presenters } = harness({ Sounds, values: { sounds: on } });
+    skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
+    assert.equal(made.length, 1);
+    assert.equal(made[0].prepared, on ? 1 : 0, 'loaded only when switched on');
+    const cue = presenters[0].opts.onCue;
+    for (const name of ['look', 'search', 'move', 'move', 'move', 'found', 'reveal']) cue(name);
+    assert.deepEqual(made[0].plays, on
+      ? [['tripod1', 0.8], ['tripod2', 0.45], ['tripod1', 0.45], ['tripod2', 0.45], ['tripod2', 0.8]]
+      : []);
+    made[0].plays.length = 0;
+    cue('search'); cue('reveal'); cue('nonsense');
+    assert.deepEqual(made[0].plays, [], 'search and reveal play nothing');
+    const closing = close(skill); await settle(); views.calls[1].onComplete(); await closing;
+    assert.equal(made[0].closed, true, 'sounds closed with the skill');
+    assert.doesNotThrow(() => cue('look'));
+    assert.deepEqual(made[0].plays, [], 'nothing after close');
+  }
 });

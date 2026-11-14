@@ -8,25 +8,25 @@ function source(id, list, resolve) { return { id, short: id, list: () => (list i
 test('one source at a time: fresh sources first (in random order), the avoided one last', () => {
   const DAY = 86400000, now = 100 * DAY, log = { info() {}, warn() {} };
   const memory = { m: { at: now - 1000, items: [{ key: 'm1', date: 1 }] }, n: { at: now - 1000, items: [{ key: 'n1', date: 1 }] } };
-  const reg = { apod: source('apod', []), hubble: source('hubble', []), eso: source('eso', []), m: source('m', []), n: source('n', []), x: source('x', []) };
+  const reg = { hubble: source('hubble', []), webb: source('webb', []), noirlab: source('noirlab', []), m: source('m', []), n: source('n', []), x: source('x', []) };
   const c = new Catalog({ net: {}, log, memory, sources: reg, now: () => now });
   const history = {
-    apod: { key: 'apod:old', date: now - 2 * DAY },          // daily, 2 days ago: fresh
-    hubble: { key: 'hubble:old', date: now - 10 * DAY },     // monthly, 10 days ago: not fresh
-    eso: { key: 'eso:old', date: 0, at: now - 8 * DAY }      // weekly, no date, shown 8 days ago: fresh
+    noirlab: { key: 'noirlab:old', date: now - 8 * DAY },     // weekly, 8 days ago: fresh
+    hubble: { key: 'hubble:old', date: now - 10 * DAY },      // monthly, 10 days ago: not fresh
+    webb: { key: 'webb:old', date: 0, at: now - 31 * DAY }    // monthly, no date, shown 31 days ago: fresh
   };
   const seen = ['m1'];
-  assert.equal(c.isFresh('apod', seen, history), true);
+  assert.equal(c.isFresh('noirlab', seen, history), true);
   assert.equal(c.isFresh('hubble', seen, history), false);
-  assert.equal(c.isFresh('eso', seen, history), true);
+  assert.equal(c.isFresh('webb', seen, history), true);
   assert.equal(c.isFresh('m', seen, history), false);        // list in memory, newest already seen
   assert.equal(c.isFresh('n', seen, history), true);         // list in memory, newest unseen
   assert.equal(c.isFresh('x', seen, history), true);         // never shown here
-  const order = c.order(['apod', 'hubble', 'eso', 'm', 'n', 'x', 'gone'], seen, history, () => 0.5);
-  assert.deepEqual(order.slice(0, 4).sort(), ['apod', 'eso', 'n', 'x']);
+  const order = c.order(['noirlab', 'hubble', 'webb', 'm', 'n', 'x', 'gone'], seen, history, () => 0.5);
+  assert.deepEqual(order.slice(0, 4).sort(), ['n', 'noirlab', 'webb', 'x']);
   assert.deepEqual(order.slice(4).sort(), ['hubble', 'm']);
-  const avoided = c.order(['apod', 'eso', 'x'], seen, history, Math.random, 'apod');
-  assert.equal(avoided[2], 'apod'); assert.equal(avoided.length, 3);
+  const avoided = c.order(['noirlab', 'webb', 'x'], seen, history, Math.random, 'noirlab');
+  assert.equal(avoided[2], 'noirlab'); assert.equal(avoided.length, 3);
 });
 
 test('only the chosen source is fetched; its own newest-first order is kept (undated listing items) and remembered for an hour', async () => {
