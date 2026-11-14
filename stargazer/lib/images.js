@@ -1,10 +1,7 @@
 'use strict';
-// Pictures in memory only (decision D6): bytes are downloaded into a Buffer, wrapped in a Blob
-// URL, decoded by an <img> and handed to PIXI as a texture. Nothing is written to disk. The URL is
-// revoked as soon as the image has decoded, and a released picture destroys its texture, so the
-// decoded pixels go too. The screen keeps at most two pictures alive: the one shown and the next.
-// The pattern follows BEam's music skill (artwork) and TeleJibo (camera preview).
-// Runs in the skill page (Chromium 53 / Node 6): ES2015 only.
+// Pictures in memory only (D6): the bytes are downloaded into a Buffer, wrapped in a Blob URL,
+// decoded by an <img> and handed to PIXI as a texture. The URL is revoked once the image has
+// decoded, and releasing a picture destroys its texture, so the decoded pixels go too.
 
 var MAX_BYTES = 3 * 1024 * 1024, MAX_SIDE = 2048, DECODE_TIMEOUT = 15000;
 
@@ -54,7 +51,11 @@ Images.prototype.decode = function (body) {
             image.onload = image.onerror = null;
             win.URL.revokeObjectURL(url);
             if (error) { image.src = ''; reject(error); return; }
-            if (!image.naturalWidth || image.naturalWidth > MAX_SIDE || image.naturalHeight > MAX_SIDE) { image.src = ''; reject(Error('bad_size')); return; }
+            if (!image.naturalWidth || image.naturalWidth > MAX_SIDE || image.naturalHeight > MAX_SIDE) {
+                image.src = '';
+                reject(Error('bad_size'));
+                return;
+            }
             resolve(new PIXI.Texture(new PIXI.BaseTexture(image, PIXI.SCALE_MODES.LINEAR)));
         }
         timer = win.setTimeout(function () { done(Error('decode_timeout')); }, DECODE_TIMEOUT);

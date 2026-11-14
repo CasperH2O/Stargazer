@@ -39,8 +39,8 @@ On the picture:
 |---|---|---|
 | Ken Burns | a slow pan and zoom across the picture; tall pictures are panned top to bottom | on |
 | Telescope iris | Jibo's eye becomes a round lens that opens up into the picture | on |
-| Look up | Jibo's eye glances up and he tilts his head towards the sky first | off |
-| Starfield | stars stream out of the eye before the picture, then sparkle by the title | off |
+| Look up | the eyepiece rises while Jibo tilts his head towards the sky | off |
+| Starfield | stars stream out of the lens as the picture opens, then sparkle by the title | off |
 
 **More:**
 - **Show for:** how long the picture stays before Jibo's eye returns: 10 s, 30 s, 1 min, 5 min, or **Until I close it**.
@@ -62,7 +62,7 @@ Stargazer shows each picture on Jibo with its credit, and does not copy, store o
 ## Privacy
 
 - **Memory only:** pictures are downloaded into memory and dropped once they leave the screen. They are never saved to disk.
-- **What is stored:** only your settings and a short list of picture IDs already shown, used for the "New" mark.
+- **What is stored:** only your settings, a short list of picture IDs already shown (for the "New" mark), and the newest picture last shown from each source (to pick a source with something new).
 - **No account and no tracking.** Stargazer only asks the picture sources for their latest pictures.
 
 ## Build and test (development machine)
@@ -73,7 +73,7 @@ python3 tools/package.py                            # writes dist/Stargazer.zip 
 node tools/make-icons.mjs <path to playwright>      # only to redraw the icons
 ```
 
-No npm or build step runs on the robot. The ZIP holds plain Node 6 JavaScript and the icons.
+No npm or build step runs on the robot. The ZIP holds plain JavaScript and the icons. The skill runs on the robot's Node 6.9.2 and Chromium 53, so code under `stargazer/` must stay ES2015: no async/await, object spread, optional chaining or `Object.values`.
 
 ```
 manifest.json, icon.png, banner.png, README.md   store files

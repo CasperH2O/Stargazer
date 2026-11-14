@@ -7,9 +7,8 @@
 // All three publish under CC BY 4.0, which needs the credit shown with the picture.
 var t = require('./text');
 
-// The catalog gives a whole source 25 s (LIST_TIMEOUT in catalog.js) and net.get waits 20 s by
-// default. A hanging feed would leave the listing ~5 s, so the source would be skipped even when the
-// listing answers: the feed gets 8 s and the listing 15 s (8 + 15 < 25).
+// Together these stay under the catalog's 25 s per source, so a hanging feed still leaves time
+// for the listing.
 var FIRST = {timeoutMs: 8000}, FALLBACK = {timeoutMs: 15000};
 
 var CODE = /\/images\/((?:potm|potw|iotw)\d{4}[a-z])\/?/;

@@ -1,11 +1,10 @@
 'use strict';
 // "Look up" on the body: Jibo tilts his head towards the sky while the picture opens, then
-// centres again. Skills on BEam's SDK have no jibo.animate; motion goes through jibo.expression
-// and jibo.animDB, as BEam's own dance and radio skills do: attention OFF (so he does not look
-// straight back at a face), a stock pose played on the BODY channels only (so our screen and
-// eye drawing are untouched), then centerRobot on the body and the attention mode released.
-// Every call is guarded: without them (or on error) the effect simply has no body part.
-// Runs on the robot's Node 6: ES2015 only.
+// centres again. BEam's SDK has no jibo.animate, so this uses jibo.expression and jibo.animDB:
+//   1. attention OFF, so he does not look straight back at a face;
+//   2. a stock pose on the BODY channels only, so the screen is untouched;
+//   3. centerRobot on the body, then the attention mode is released.
+// Every call is guarded: without these APIs, or on an error, there is simply no body movement.
 
 var POSE = 'Body_Look_Center_Up_01';
 

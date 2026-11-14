@@ -1,18 +1,12 @@
 'use strict';
-// Which picture to show: ONE source, chosen at random, and that source's newest picture (user,
-// 2026-11-14: no browsing through every source; don't download lists that won't be shown).
+// Which picture to show: one source, chosen at random, and that source's newest picture.
 //
-// A source is "fresh" when we know without downloading that it has a picture not shown yet:
-//  - its list is still in memory (fetched less than an hour ago) and its newest picture is unseen, or
-//  - its list is not in memory and either it never showed a picture here, or its publishing
-//    cadence (weekly / monthly) has passed since the newest picture it last showed.
-// Fresh sources are tried first, in random order, then the others (so something still shows when
-// nothing new is out). Only the chosen source's list is fetched; a source that fails is skipped
-// (and logged) and the next one is tried by the caller.
-// Only metadata is kept (in memory, for an hour, shared between openings while Be runs). Details a
-// source reads from the picture's own page (credit, object) are filled in by resolve() just before
-// the picture is shown.
-// Runs on the robot's Node 6: ES2015 only.
+// order() puts "fresh" sources first: those known, without downloading, to have a picture not
+// shown yet. That is when its list in memory has an unseen newest picture, or (no list in memory)
+// it never showed a picture here or its publishing cadence has passed since the last one shown.
+// Only the chosen source's list is fetched (list()); the caller moves on to the next on failure.
+// Lists stay in memory for an hour, shared between openings. resolve() fills in the details a
+// source reads from the picture's own page just before it is shown.
 var sources = require('./sources');
 
 var PER_SOURCE = 3, FRESH_MS = 60 * 60 * 1000, LIST_TIMEOUT = 25000, DAY = 24 * 60 * 60 * 1000;
@@ -65,13 +59,14 @@ Catalog.prototype.order = function (ids, seen, history, random, avoid) {
     if (avoid && ids.indexOf(avoid) >= 0 && this.registry[avoid]) order.push(avoid);
     return order;
 };
-// One source's pictures, newest first as the source lists them (fetched, or from memory). Rejects when the source fails
-// or has nothing.
+// One source's pictures, newest first (fetched, or from memory). Rejects when the source fails or
+// has nothing.
 Catalog.prototype.list = function (id) {
     var self = this, source = this.registry[id], items = this.cached(id), now = this.now();
     if (!source) return Promise.reject(Error('unknown_source'));
     if (items) return items.length ? Promise.resolve(items) : Promise.reject(Error('empty'));
-    return withTimeout(Promise.resolve().then(function () { return source.list(self.net, PER_SOURCE); }), LIST_TIMEOUT, self.timers).then(function (list) {
+    var fetched = Promise.resolve().then(function () { return source.list(self.net, PER_SOURCE); });
+    return withTimeout(fetched, LIST_TIMEOUT, self.timers).then(function (list) {
         list = (list || []).slice();        // every source lists newest first (listing items may have no date)
         self.memory[id] = {at: now, items: list};
         if (!list.length) throw Error('empty');

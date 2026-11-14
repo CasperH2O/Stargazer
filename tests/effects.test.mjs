@@ -1,4 +1,4 @@
-// Pure parts of the effects: Ken Burns plans, iris radius, look-up glance, starfield helpers, eyepiece search path.
+// Pure parts of the effects: Ken Burns plans, iris radius, starfield helpers, eyepiece search path.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -7,7 +7,6 @@ const require = createRequire(import.meta.url);
 const util = require('../stargazer/lib/effects/util.js');
 const kb = require('../stargazer/lib/effects/kenburns.js');
 const iris = require('../stargazer/lib/effects/iris.js');
-const lookup = require('../stargazer/lib/effects/lookup.js');
 const star = require('../stargazer/lib/effects/starfield.js');
 const eyepiece = require('../stargazer/lib/effects/eyepiece.js');
 
@@ -57,12 +56,6 @@ test('iris starts at the eye, breathes in, and ends covering the corners', () =>
   assert.ok(Math.abs(iris.radiusAt(1500, 150, to, 1500) - to) < 1e-9);
   let prev = 0;
   for (let t = 300; t <= 1500; t += 50) { const r = iris.radiusAt(t, 150, to, 1500); assert.ok(r >= prev - 1e-9); prev = r; }
-});
-
-test('look-up glance rises, holds and returns', () => {
-  assert.equal(lookup.glanceAt(0, 1000, 120).dy, -0);
-  assert.ok(Math.abs(lookup.glanceAt(500, 1000, 120).dy + 120) < 1e-9);
-  assert.ok(Math.abs(lookup.glanceAt(1000, 1000, 120).dy) < 1e-9);
 });
 
 test('starfield helpers', () => {

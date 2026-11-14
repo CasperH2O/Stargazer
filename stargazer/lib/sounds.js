@@ -1,12 +1,7 @@
 'use strict';
-// Telescope sounds for the eyepiece (0.4.0, user 2026-11-14): Jibo's own effects from his animation
-// library (jibo-anim-db-animations audio, the "Fresh and Lively" December 2017 telescope set). They are
-// played by absolute path from where the robot keeps that library, never copied into the skill.
-//   tripod1/2  the telescope moving: looking in, each glide, finding the picture
-// (The set's night-sky ambience, crickets, was dropped in 0.4.2: the user would rather not have it.)
-// Loaded the way BEam's own skills load sounds (jibo.loader.load, then jibo.sound.play(id)).
-// Everything is guarded: without the SDK sound plugin, or on any error, there is simply no sound.
-// Runs in the skill page (Chromium 53 / Node 6): ES2015 only.
+// Telescope sounds for the eyepiece: Jibo's own tripod clicks from his animation library, played
+// by absolute path from the robot (never copied into the skill). Loaded with jibo.loader.load and
+// played with jibo.sound.play. Without the SDK sound plugin, or on any error, there is no sound.
 var path = require('path');
 
 var DIR = 'audio/sfx/Fresh_and_Lively/December_2017/';

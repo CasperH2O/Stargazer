@@ -1,5 +1,5 @@
 'use strict';
-// Starfield: a short "warp" of stars streaming out of Jibo's eye before the picture appears, and a
+// Starfield: a short "warp" of stars streaming out of the lens as the picture opens, and a
 // few twinkling sparkles around the caption afterwards. One Graphics object each, redrawn per frame.
 var util = require('./util');
 

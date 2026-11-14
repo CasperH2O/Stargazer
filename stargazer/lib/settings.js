@@ -1,16 +1,14 @@
 'use strict';
-// The person's choices, in <data root>/settings.json. That folder belongs to Stargazer and
-// outlives skill updates (BEacon keeps custom-skill data under Knowledge/beacon on the robot and
-// /tmp/beam-beacon in development and the simulator). Pictures are NEVER written here or
-// anywhere: they live in memory only. Besides settings.json there are seen.json, a short list of
-// picture ids already shown (for the "New" badge), capped at SEEN_MAX entries, and sources.json,
-// the id and date of the newest picture last shown from each source (picture choice, catalog.js).
-// Runs on the robot's Node 6: ES2015 only.
+// What Stargazer stores, in its own data folder (it survives skill updates):
+//   settings.json  the person's choices
+//   seen.json      ids of pictures already shown, for the "New" mark (at most SEEN_MAX)
+//   sources.json   the newest picture last shown from each source (used by catalog.js)
+// Pictures are never written to disk.
 var fs = require('fs'), path = require('path');
 
 var NAME = 'stargazer';
-// APOD, NASA Image of the Day, NASA EPIC, ESO and ESA Earth from Space were removed (2026-11-14:
-// their TLS chains need root certificates newer than the robot's Node 6); clean() drops their old keys.
+// Only sources whose TLS chains the robot's 2016 root certificates can verify (D25). Keys of
+// removed sources in an old settings.json are dropped by clean().
 var SOURCES = ['hubble', 'webb', 'noirlab'];
 var EFFECTS = ['kenBurns', 'iris', 'lookUp', 'starfield'];
 var SHOW_FOR = [10, 30, 60, 300, 0];   // seconds before Jibo's eye returns; 0 = until closed
@@ -19,13 +17,12 @@ var SEEN_MAX = 300;
 
 var DEFAULTS = {
     sources: {hubble: true, webb: true, noirlab: true},
-    // Calmer defaults (user, 2026-11-14): the pan-and-zoom and the iris; look-up and starfield off.
     effects: {kenBurns: true, iris: true, lookUp: false, starfield: false},
     showFor: 10,
     slideshow: 0,
     readTitle: true,       // the title only, never the description
     caption: true,
-    sounds: true           // Jibo's telescope sounds while the eyepiece searches (0.4.0)
+    sounds: true           // Jibo's tripod clicks while the eyepiece searches
 };
 
 function copyDefaults() { return JSON.parse(JSON.stringify(DEFAULTS)); }
@@ -52,6 +49,7 @@ function clean(values) {
 }
 
 function onRobot() { return fs.existsSync('/opt/jibo/Jibo/Skills'); }
+// BEacon keeps custom-skill data under Knowledge/beacon on the robot, /tmp/beam-beacon elsewhere.
 function dataRoot() {
     if (process.env.STARGAZER_DATA_DIR) return path.resolve(process.env.STARGAZER_DATA_DIR);
     return onRobot() ? '/opt/jibo/Knowledge/beacon/custom-skills/' + NAME : '/tmp/beam-beacon/custom-skills/' + NAME;
@@ -85,7 +83,11 @@ class Store {
     constructor(root) { this.root = root || dataRoot(); }
     read() { return clean(readJson(path.join(this.root, 'settings.json'), 4096)); }
     write(values) { var v = clean(values); writeJson(this.root, 'settings.json', v); return v; }
-    seen() { var list = readJson(path.join(this.root, 'seen.json'), 64 * 1024); return Array.isArray(list) ? list.filter(function (x) { return typeof x === 'string'; }).slice(-SEEN_MAX) : []; }
+    seen() {
+        var list = readJson(path.join(this.root, 'seen.json'), 64 * 1024);
+        if (!Array.isArray(list)) return [];
+        return list.filter(function (x) { return typeof x === 'string'; }).slice(-SEEN_MAX);
+    }
     markSeen(list, id) {
         if (list.indexOf(id) >= 0) return list;
         var next = list.concat([id]).slice(-SEEN_MAX);

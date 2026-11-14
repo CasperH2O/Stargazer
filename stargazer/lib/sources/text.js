@@ -1,6 +1,6 @@
 'use strict';
-// Small, forgiving text helpers for RSS, HTML and JSON from the picture sources. No DOM: the
-// same code runs in Node tests and on the robot. Runs on the robot's Node 6: ES2015 only.
+// Small, forgiving text helpers for the sources' RSS and HTML. No DOM, so the same code runs in
+// the Node tests and on the robot.
 
 var ENTITIES = {amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'', nbsp: ' ', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“',
     ndash: '–', mdash: '—', hellip: '…', deg: '°', eacute: 'é', egrave: 'è', ouml: 'ö', uuml: 'ü', auml: 'ä', aacute: 'á', iacute: 'í', oacute: 'ó', ntilde: 'ñ', ccedil: 'ç'};
@@ -23,10 +23,6 @@ function plain(s) {
 function tag(xml, name) {
     var m = String(xml).match(new RegExp('<' + name + '(?:\\s[^>]*)?>([\\s\\S]*?)</' + name + '>'));
     return m ? m[1] : '';
-}
-function attr(xml, name, attribute) {
-    var m = String(xml).match(new RegExp('<' + name + '\\b[^>]*\\s' + attribute + '="([^"]*)"'));
-    return m ? decode(m[1]) : '';
 }
 function items(xml) { return String(xml).split(/<item[\s>]/).slice(1).map(function (s) { return s.split('</item>')[0]; }); }
 // The cell after a "Key:" header cell (djangoplicity "About the Object" tables).
@@ -52,4 +48,4 @@ function sentences(s, count, max) {
 }
 function date(value) { var t = Date.parse(String(value || '').replace(/(\d)\.(\s)/, '$1$2')); return isFinite(t) ? t : 0; }
 
-module.exports = {decode: decode, plain: plain, tag: tag, attr: attr, items: items, row: row, sentences: sentences, date: date};
+module.exports = {decode: decode, plain: plain, tag: tag, items: items, row: row, sentences: sentences, date: date};

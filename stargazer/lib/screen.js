@@ -2,8 +2,6 @@
 // Stargazer's face UI: one SDK View. The picture (lib/presenter.js and its effects) is a PIXI layer
 // at the bottom of the view's stage; the info overlay, menus and offline screen are the SDK's own
 // Labels, SkillButtons and ActionButtons in the classic look, shown per screen from model.view().
-// The view lifecycle, paging and hidden-view cleanup follow the Bluetooth skill (same author).
-// Runs in the skill page (Chromium 53 / Node 6): ES2015 only.
 var path = require('path');
 var layout = require('./layout'), createArt = require('./art'), createLog = require('./log');
 var Model = require('./model'), S = require('./settings'), Presenter = require('./presenter');
@@ -11,14 +9,18 @@ var Catalog = require('./catalog'), Images = require('./images').Images, net = r
 var sources = require('./sources'), Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
 var C = layout.color, P = layout.pairs, TL = layout.tiles, I = layout.info;
 
-function OWN(name) { return path.join(__dirname, '..', 'resources', 'icons', name + '.png'); }
+function iconPath(name) { return path.join(__dirname, '..', 'resources', 'icons', name + '.png'); }
 var LISTS = ['sources', 'effects', 'more'];
 var RETRY_MS = 60000;        // offline: try again by itself every minute
 var WATCHDOG_MS = 20000;     // still loading after this long: log where it is stuck (and every 20 s after)
 var GIVE_UP_MS = 90000;      // still loading after this long: show the offline screen (it retries by itself)
 var CLOSE_MS = 3000;         // our own limit for the view's close, shorter than Be's 5 s force-close
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function day(ms) { if (!ms) return ''; var d = new Date(ms); return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear(); }
+function day(ms) {
+    if (!ms) return '';
+    var d = new Date(ms);
+    return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+}
 
 // deps (tests only): {store, net, Presenter, Images, Catalog, createArt, Motion, Sounds, document, closeMs, watchdogMs, giveUpMs}
 module.exports = function createScreen(jibo, BeSkill, deps) {
@@ -32,13 +34,34 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         constructor() {
             super(...arguments);
             this.diagnostics = createLog(this.log);
-            this.view = null; this.model = null; this.vm = null; this.leaving = false; this.closing = null;
-            this.cache = new Map(); this.labels = {}; this.fills = {}; this.ids = []; this.rows = {};
-            this.decor = null; this.art = null; this.presenter = null; this.images = null; this.catalog = null;
-            this.token = 0; this.loop = null; this.retryTimer = null; this.watchdog = null;
-            this.slide = {x: 0, velocity: 0, target: 0}; this.dragging = null; this.animation = null; this.pan = null; this.tapping = false;
-            this.spoken = null; this.speaking = false; this.dirty = false; this.sourcesKey = null; this.store = null; this.seen = []; this.history = {};
-            this.onScreen = {}; this.current = null; this.pending = null; this.sounds = null; this.loadProgress = 0; this.moves = 0; this.loadingSince = 0; this.openedAt = 0; this.openings = 0;
+            // One opening: the SDK view, the model and the view model it last drew.
+            this.view = null; this.model = null; this.vm = null;
+            this.leaving = false;           // leave() was called
+            this.closing = null;            // the close in flight (a promise)
+            this.openedAt = 0; this.openings = 0;
+            // Services, made per opening.
+            this.store = null; this.images = null; this.catalog = null; this.motion = null; this.sounds = null;
+            // Stored state: picture ids already shown, and what each source showed last.
+            this.seen = []; this.history = {};
+            // Loading. A new token cancels everything still running for the previous one.
+            this.token = 0;
+            this.current = null;            // {item, picture, token} on screen
+            this.pending = null;            // a picture that is in before the presenter exists
+            this.onScreen = {};             // picture key -> how many sprites still show it
+            this.loadProgress = 0; this.loadingSince = 0;
+            this.retryTimer = null; this.watchdog = null;
+            // The picture layer and its frame loop.
+            this.decor = null; this.art = null; this.presenter = null; this.loop = null;
+            // SDK components, by id: lookups, last text and fill set, list rows, lazily loaded icons.
+            this.ids = []; this.cache = new Map(); this.labels = {}; this.fills = {}; this.rows = {};
+            this.icons = {}; this.iconsLoading = false;
+            // Menu paging: the row's offset, an ongoing drag or spring, and the pan gesture.
+            this.slide = {x: 0, velocity: 0, target: 0}; this.dragging = null; this.animation = null; this.pan = null;
+            this.tapping = false;           // the tap-on-picture action is on
+            // Speech, sounds and settings changes.
+            this.spoken = null; this.speaking = false; this.moves = 0;
+            this.dirty = false;             // the sources changed in the menus: load anew on the way back
+            this.sourcesKey = null;
         }
         // Milliseconds since this opening started, for the log.
         since() { return (Date.now() - this.openedAt) + ' ms'; }
@@ -83,20 +106,23 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.catalog = new CatalogClass({net: deps.net || net, log: this.diagnostics});
             this.view = views.createView('View', this.config(views));
             this.view.viewStateStacked = true;
-            this.view.addAction(views.ActionData.CALLBACK, {callback: function () { self.swipeDown(); }}, true, false, views.GESTURE.SWIPE_DOWN);
+            var onSwipeDown = {callback: function () { self.swipeDown(); }};
+            this.view.addAction(views.ActionData.CALLBACK, onSwipeDown, true, false, views.GESTURE.SWIPE_DOWN);
             var view = this.view;
             function ours() { return self.view === view && !!self.model && !self.closing; }
             views.changeView({addView: this.view, transitionOpen: views.TRANSITION.IN, transitionClose: views.TRANSITION.OUT},
                 function () { if (ours()) { self.diagnostics.info('view open after', self.since()); self.render(); } },
                 function () { self.diagnostics.warn('view failed to open after', self.since()); if (ours()) self.leave(); },
                 function () { if (ours()) { self.diagnostics.info('view loaded after', self.since()); self.ensureDecor(); self.render(); } });
-            this.diagnostics.info('opened #' + this.openings + '; sources', S.enabledSources(values).join(','), '; effects', S.EFFECTS.filter(function (k) { return values.effects[k]; }).join(',') || 'none');
+            var effectsOn = S.EFFECTS.filter(function (k) { return values.effects[k]; });
+            this.diagnostics.info('opened #' + this.openings + '; sources', S.enabledSources(values).join(','),
+                '; effects', effectsOn.join(',') || 'none');
             this.start();
         }
 
         // ---------- pictures ----------
-        // One source, chosen at random among those known to have something new (catalog.js), and
-        // its newest picture. With a picture on screen (slideshow) it stays until the next one is in.
+        // One source (catalog.js picks it) and its newest picture. With a picture on screen
+        // (slideshow) that picture stays until the next one is in.
         start(avoid) {
             var self = this, token = ++this.token, values = this.model.values, replacing = !!this.current;
             if (!replacing) {
@@ -198,16 +224,27 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         // A one-line summary of the skill's state for the log.
         state() {
             var views = jibo.face.views, v = this.view;
-            return {view: v ? v.state : null, current: !!(v && views && views.currentView === v), decor: !!this.decor, presenter: !!this.presenter,
-                pending: this.pending ? this.pending.item.key : null, base: this.model ? this.model.base : null, stack: this.model ? this.model.stack.join('/') : null,
-                images: this.images ? this.images.count() : null, loop: !!this.loop, closing: !!this.closing, leaving: this.leaving, token: this.token};
+            return {
+                view: v ? v.state : null,
+                current: !!(v && views && views.currentView === v),
+                decor: !!this.decor,
+                presenter: !!this.presenter,
+                pending: this.pending ? this.pending.item.key : null,
+                base: this.model ? this.model.base : null,
+                stack: this.model ? this.model.stack.join('/') : null,
+                images: this.images ? this.images.count() : null,
+                loop: !!this.loop,
+                closing: !!this.closing,
+                leaving: this.leaving,
+                token: this.token
+            };
         }
-        // The eyepiece's dial lights up as loading goes on (stages: source chosen, listed, picture in).
+        // The eyepiece's dial lights up as loading goes on (source chosen, listed, picture in).
         setProgress(p) {
             this.loadProgress = Math.max(this.loadProgress, p);
             if (this.presenter) this.presenter.progress(this.loadProgress);
         }
-        // The presenter's moments, as Jibo's telescope sounds (setting "Telescope sounds").
+        // The presenter's moments, as Jibo's tripod clicks (setting "Telescope sounds").
         cue(name) {
             var s = this.sounds;
             if (!s || !this.model || !this.model.values.sounds) return;
@@ -251,7 +288,9 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var self = this, tts = jibo.tts;
             if (!tts || typeof tts.speak !== 'function' || !text) return;
             this.speaking = true;
-            try { Promise.resolve(tts.speak(text)).catch(function () {}).then(function () { self.speaking = false; }); } catch (_) { this.speaking = false; }
+            try {
+                Promise.resolve(tts.speak(text)).catch(function () {}).then(function () { self.speaking = false; });
+            } catch (_) { this.speaking = false; }
         }
         stopSpeaking() {
             if (!this.speaking) return;
@@ -272,7 +311,13 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var top = this.model.top();
             if (LISTS.indexOf(top) >= 0) this.slide = {x: 0, velocity: 0, target: 0};
             if (this.model.back() === 'exit') { this.leave(); return; }
-            if (!this.model.covered() && this.dirty) { this.dirty = false; this.sourcesKey = S.enabledSources(this.model.values).join(','); this.current = null; this.start(); }
+            // Back on the picture after the sources changed: load a picture from the new set.
+            if (!this.model.covered() && this.dirty) {
+                this.dirty = false;
+                this.sourcesKey = S.enabledSources(this.model.values).join(',');
+                this.current = null;
+                this.start();
+            }
         }
         leave() {
             if (this.leaving) return;
@@ -306,7 +351,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 if (icon.set || !icon.texture || !PIXI) return;
                 c = self.component(id);
                 if (!c || typeof c.setIcon !== 'function') return;
-                try { c.setIcon(new PIXI.Sprite(icon.texture)); icon.set = true; } catch (error) { self.diagnostics.warn('icon', id + ':', error && error.message || error); }
+                try {
+                    c.setIcon(new PIXI.Sprite(icon.texture));
+                    icon.set = true;
+                } catch (error) { self.diagnostics.warn('icon', id + ':', error && error.message || error); }
             });
         }
         tapPicture() {
@@ -325,27 +373,33 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var self = this, components = [];
             this.ids = []; this.cache = new Map(); this.labels = {}; this.fills = {}; this.rows = {};
             this.icons = {}; this.iconsLoading = false;
-            function callback(fn) { return {type: views.ActionData.CALLBACK, data: {callback: function () { if (self.active() && !self.dragging && !self.animation) fn(); }}}; }
+            // A button's action: ignored while the view is not ours to use or a list is moving.
+            function callback(fn) {
+                return {type: views.ActionData.CALLBACK, data: {callback: function () {
+                    if (self.active() && !self.dragging && !self.animation) fn();
+                }}};
+            }
             function label(id, x, y, size, width, options) {
                 options = options || {};
                 var fill = options.fill || C.text;
                 self.ids.push(id); self.labels[id] = null; self.fills[id] = fill;
-                var style = {fontFamily: options.bold ? layout.font.title : layout.font.body, fontSize: size, fill: fill, align: 'center', fontWeight: options.bold ? 'bold' : 'normal'};
+                var style = {fontFamily: options.bold ? layout.font.title : layout.font.body, fontSize: size, fill: fill,
+                    align: 'center', fontWeight: options.bold ? 'bold' : 'normal'};
                 if (options.lines) { style.wordWrap = true; style.wordWrapWidth = width; style.lineHeight = options.line; }
                 components.push({type: 'Label', id: id, text: ' ', position: {x: x, y: y}, targetAnchor: {x: 0.5, y: options.lines ? 0 : 0.5},
                     bounds: {width: width, height: options.lines ? options.lines * options.line + size * 0.6 : size * 1.6}, style: style});
             }
             function tile(id, icon, x, fn) {
                 self.ids.push(id);
-                // No iconSrc: the view would load every menu icon before it can show anything (the
-                // black first open, user 2026-11-14). loadMenuIcons() adds them when the menus are near.
-                self.icons[id] = {src: OWN('tile-' + icon), texture: null, set: false};
+                // No iconSrc: the view would load every menu icon before it can show anything.
+                // loadMenuIcons() adds them when the menus are near (D26).
+                self.icons[id] = {src: iconPath('tile-' + icon), texture: null, set: false};
                 components.push({type: 'SkillButton', id: id, colors: P.space, position: {x: x, y: TL.y}, action: callback(fn)});
             }
             function action(id, icon, colors, cx, cy, size, fn) {
                 self.ids.push(id);
                 var scale = size / layout.dialog.button;
-                components.push({type: 'ActionButton', id: id, iconSrc: OWN('action-' + icon), colors: colors, position: {x: cx - size / 2, y: cy - size / 2},
+                components.push({type: 'ActionButton', id: id, iconSrc: iconPath('action-' + icon), colors: colors, position: {x: cx - size / 2, y: cy - size / 2},
                     transform: {scaleX: scale, scaleY: scale}, action: callback(fn)});
             }
             label('title', 640, layout.title.y, layout.title.size, layout.title.width, {bold: true});
@@ -380,7 +434,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             label('body', 640, layout.dialog.large.y - 40, layout.dialog.large.size - 5, layout.dialog.large.width, {lines: 2, line: layout.dialog.large.line});
             action('btn-retry', 'refresh', P.confirm, 640, layout.dialog.single, layout.dialog.button, function () { self.press('retry'); });
             label('cap-retry', 640, layout.dialog.caption + (layout.dialog.single - layout.dialog.y), layout.dialog.captionSize, 400);
-            return {viewConfig: {type: 'View', id: 'stargazer', category: 'gui', ignoreSwipeDown: true, transitionStageOnly: true}, componentConfigs: components};
+            return {
+                viewConfig: {type: 'View', id: 'stargazer', category: 'gui', ignoreSwipeDown: true, transitionStageOnly: true},
+                componentConfigs: components
+            };
         }
         // Buttons are built once their icons load, after the view opens: a component not there
         // yet is looked up again next time instead of being cached as missing.
@@ -447,7 +504,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 this.decor.scrim.visible = vm.screen === 'info';
                 var bar = vm.tiles && vm.tiles.pager;
                 this.decor.track.visible = this.decor.thumb.visible = !!bar;
-                if (bar) { this.decor.thumb.texture = this.art.pill(bar.thumb.width, bar.thumb.height, C.thumb); this.decor.thumb.position.set(bar.thumb.x, bar.thumb.y); }
+                if (bar) {
+                    this.decor.thumb.texture = this.art.pill(bar.thumb.width, bar.thumb.height, C.thumb);
+                    this.decor.thumb.position.set(bar.thumb.x, bar.thumb.y);
+                }
             }
             if (this.presenter) this.presenter.cover(vm.covered);
             this.tapOnPicture(vm.screen === 'viewer');
@@ -483,8 +543,14 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var views = jibo.face.views, self = this;
             if (!this.view || on === this.tapping) return;
             this.tapping = on;
-            if (on) this.view.addAction(views.ActionData.CALLBACK, {callback: function () { if (self.active()) { if (self.model) self.model.touch(); self.tapPicture(); } }}, true, false, views.GESTURE.TAP);
-            else if (typeof this.view.clearActions === 'function') this.view.clearActions(views.GESTURE.TAP);
+            if (on) {
+                var onTap = {callback: function () {
+                    if (!self.active()) return;
+                    if (self.model) self.model.touch();
+                    self.tapPicture();
+                }};
+                this.view.addAction(views.ActionData.CALLBACK, onTap, true, false, views.GESTURE.TAP);
+            } else if (typeof this.view.clearActions === 'function') this.view.clearActions(views.GESTURE.TAP);
         }
         ensureDecor() {
             var PIXI = global.PIXI, self = this;
@@ -493,7 +559,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var art = this.art = makeArt(PIXI, doc());
             var root = new PIXI.Container(), scrim = new PIXI.Graphics(), below = new PIXI.Container();
             scrim.beginFill(0x000000, 0.72); scrim.drawRect(0, 0, 1280, 720); scrim.endFill(); scrim.visible = false;
-            var track = new PIXI.Sprite(art.pill(layout.pager.width, layout.pager.height, C.track)); track.position.set(layout.pager.x, layout.pager.y);
+            var track = new PIXI.Sprite(art.pill(layout.pager.width, layout.pager.height, C.track));
+            track.position.set(layout.pager.x, layout.pager.y);
             var thumb = new PIXI.Sprite(PIXI.Texture.EMPTY);
             below.addChild(scrim); below.addChild(track); below.addChild(thumb);
             this.view.stage.addChildAt(below, 0);
@@ -532,12 +599,15 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             return true;
         }
 
-        // ---------- horizontal pans: change picture in the viewer, page a menu list ----------
+        // ---------- paging a menu list with a horizontal pan ----------
         panning(on) {
             var views = jibo.face.views, touch = views._touchManager, gesture = views.GESTURE;
             if (!touch || !gesture || typeof touch.addGesture !== 'function') return;
             // Destroying any view removes every gesture (TouchManager.removeAllGestures), ours included.
-            if (on && this.pan && '_panHorizontalGesture' in touch && !touch._panHorizontalGesture) { this.diagnostics.info('pan gesture was removed: adding it again'); this.pan = null; }
+            if (on && this.pan && '_panHorizontalGesture' in touch && !touch._panHorizontalGesture) {
+                this.diagnostics.info('pan gesture was removed: adding it again');
+                this.pan = null;
+            }
             if (on && !this.pan) { this.pan = this.onPan.bind(this); touch.addGesture(gesture.PAN, this.pan); }
             else if (!on && this.pan) { touch.removeGesture(gesture.PAN); this.pan = null; this.dragging = null; }
         }
@@ -612,10 +682,19 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (this.motion) this.motion.close();
         }
         disposeDecor() {
-            if (this.presenter) { try { this.presenter.destroy(); } catch (error) { this.diagnostics.warn('presenter', error && error.message); } this.presenter = null; }
+            if (this.presenter) {
+                try { this.presenter.destroy(); } catch (error) { this.diagnostics.warn('presenter', error && error.message); }
+                this.presenter = null;
+            }
             if (this.images) { this.images.close(); this.images = null; }
             var d = this.decor;
-            if (d) [d.root, d.below].forEach(function (layer) { if (!layer._destroyed) { if (layer.parent) layer.parent.removeChild(layer); layer.destroy({children: true}); } });
+            if (d) {
+                [d.root, d.below].forEach(function (layer) {
+                    if (layer._destroyed) return;
+                    if (layer.parent) layer.parent.removeChild(layer);
+                    layer.destroy({children: true});
+                });
+            }
             if (this.art) this.art.destroy();
             this.decor = null; this.art = null; this.current = null; this.pending = null; this.onScreen = {};
         }
@@ -640,7 +719,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 return new Promise(function (resolve, reject) {
                     var timer = setTimeout(function () { reject(Error('stargazer_view_close_timeout')); }, closeMs);
                     views.changeView({remove: true, leaveEmpty: views.viewStackLength === 1, transitionClose: views.TRANSITION.OUT},
-                        function () { clearTimeout(timer); resolve(); }, function () { clearTimeout(timer); reject(Error('stargazer_view_close_failed')); });
+                        function () { clearTimeout(timer); resolve(); },
+                        function () { clearTimeout(timer); reject(Error('stargazer_view_close_failed')); });
                 });
             }).then(function () { self.view = null; self.disposeDecor(); }, function (error) {
                 self.diagnostics.warn('close:', error && error.message || error, JSON.stringify(self.state()));

@@ -1,10 +1,8 @@
 'use strict';
-// HTTP(S) GET into memory, the way BEam's own skills fetch (Node http/https; BEam's music skill
-// reaches lrclib.net like this). Bodies are capped in size and time and never touch the disk.
-// Redirects are followed (up to 4); timeoutMs covers the whole get, redirects included.
-// get(url, {maxBytes, timeoutMs, accept}) -> Promise<{status, headers, body: Buffer, url}>;
-// text(url) and json(url) are shorthands.
-// Runs on the robot's Node 6: ES2015 only.
+// HTTP(S) GET into memory with Node's http/https. Bodies are capped in size and time and never
+// touch the disk. Up to 4 redirects are followed; timeoutMs covers the whole get, redirects included.
+//   get(url, {maxBytes, timeoutMs, accept}) -> Promise<{status, headers, body: Buffer, url}>
+//   text(url), json(url): shorthands
 var http = require('http'), https = require('https'), urlLib = require('url');
 
 var USER_AGENT = 'Stargazer/0.4 (Jibo skill)';
@@ -14,8 +12,7 @@ function get(target, options, transport) {
     options = options || {};
     transport = transport || {http: http, https: https};
     var maxBytes = options.maxBytes || DEFAULT_MAX, timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT;
-    // One deadline for the whole get, redirects included: a per-hop timer would let a redirecting
-    // server stretch a caller's budget (catalog.js gives a source 25 s) up to five times.
+    // One deadline for the whole get: a timer per redirect would stretch the caller's budget.
     var hops = 0, deadline = Date.now() + timeoutMs;
     function once(address) {
         return new Promise(function (resolve, reject) {

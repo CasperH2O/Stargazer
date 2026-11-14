@@ -29,7 +29,9 @@ function plan(img, view, rand, opts) {
     } else {               // drift between two random spots, biased towards the middle
         u0 = 0.2 + 0.6 * rand(); v0 = 0.2 + 0.6 * rand(); u1 = 0.2 + 0.6 * rand(); v1 = 0.2 + 0.6 * rand();
     }
-    var from = opts.from ? {z: opts.from.z, cx: opts.from.cx, cy: opts.from.cy} : (function () { var c = centre(z0, u0, v0); return {z: z0, cx: c.cx, cy: c.cy}; })();
+    var from;
+    if (opts.from) from = {z: opts.from.z, cx: opts.from.cx, cy: opts.from.cy};
+    else { var c0 = centre(z0, u0, v0); from = {z: z0, cx: c0.cx, cy: c0.cy}; }
     var c1 = centre(z1, u1, v1);
     return {
         img: {w: img.w, h: img.h}, view: {w: view.w, h: view.h}, cover: cover,

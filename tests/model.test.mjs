@@ -5,7 +5,7 @@ const Model = lib('model.js'), S = lib('settings.js');
 
 function setup(values) {
   const clock = fakeClock(), events = [];
-  const model = new Model(values, { timers: clock, onExit: () => events.push('exit'), onNext: (n) => events.push('next' + n), onSave: () => events.push('save'), onChange: () => {} });
+  const model = new Model(values, { timers: clock, onExit: () => events.push('exit'), onNext: () => events.push('next'), onSave: () => events.push('save'), onChange: () => {} });
   return { clock, model, events };
 }
 const ITEM = { key: 'a', title: 'A' };
@@ -37,9 +37,9 @@ test('until closed: no timer; slideshow: next picture every N minutes and never 
   model.viewing(ITEM, {}); model.shown(); clock.advance(3600000); assert.deepEqual(events, []);
   ({ clock, model, events } = setup({ showFor: 10, slideshow: 5 }));
   model.viewing(ITEM, {}); model.shown();
-  clock.advance(5 * 60000); assert.deepEqual(events, ['next1']);
+  clock.advance(5 * 60000); assert.deepEqual(events, ['next']);
   model.viewing({ key: 'b' }, {}); model.shown();
-  clock.advance(5 * 60000); assert.deepEqual(events, ['next1', 'next1']);
+  clock.advance(5 * 60000); assert.deepEqual(events, ['next', 'next']);
 });
 
 test('swipe down: menus go back one level, the picture leaves', () => {

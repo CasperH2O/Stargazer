@@ -1,20 +1,18 @@
 'use strict';
-// Presents pictures with the chosen effects. It owns no timers: the screen drives update(dt) from
-// the PIXI ticker (the effect videos drive it frame by frame). It owns no textures either: when a
-// picture has left the screen it hands its texture back through opts.onRetire(texture), exactly once.
-// Everything it schedules for a picture is bound to that picture: once a newer one has replaced it
-// (entry !== current) the old picture's caption, onShown and sparkles never happen.
+// Shows pictures with the chosen effects. It has no timers of its own: the caller drives
+// update(dt) every frame. It does not own the textures either: when a picture has left the screen
+// its texture goes back through opts.onRetire(texture), exactly once. Anything scheduled for a
+// picture is dropped once a newer picture has replaced it.
 //
 //   var p = new Presenter(PIXI, root, {view, effects: {kenBurns, iris, lookUp, starfield},
 //                                      seed, onLookUp, onRetire, onShown, onCue, showCaption});
 //   p.wait();                                 // the eyepiece searches the sky while it loads
 //   p.progress(0..1);                         // its dial lights up as loading goes on
-//   p.show(texture, {title, line, credit});   // first call: centre, focus pull, reveal; later calls cross-fade
+//   p.show(texture, {title, line, credit});   // first call: the opening; later calls cross-fade
 //   p.update(dtMs); ... p.destroy();
 //
-// The opening (0.4.0, user 2026-11-14): Jibo's eye turns into a telescope eyepiece (no text) that
-// wanders slowly as if searching; when the picture is in it glides back to the centre, the picture
-// comes up inside the lens from black, blurred, and sharpens (focus pull), then the iris opens it.
+// The opening: an eyepiece searches the sky near the top of the screen; once the picture is in,
+// the picture comes into focus inside the lens and the iris opens it to full screen (D24, D27).
 // opts.onCue(name) marks the moments for sound: 'look', 'search', 'move', 'found', 'reveal'.
 var util = require('./effects/util');
 var kenburns = require('./effects/kenburns');
@@ -23,12 +21,24 @@ var starfield = require('./effects/starfield');
 var eyepiece = require('./effects/eyepiece');
 var Caption = require('./caption').Caption;
 
-var LENS_R = 180;          // the eyepiece's lens (user, 2026-11-14: "fine if the lens is a little bit bigger")
-// Where the eyepiece looks: up near the top of the screen, as if at the sky (user, 2026-11-14: keep it
-// near the top, only up and down 30 px; left and right as before). The picture opens from there too.
+var LENS_R = 180;                       // the eyepiece's lens radius
+// The eyepiece searches a band near the top of the screen: SKY_Y above the centre, +-SEARCH.ax px
+// sideways and +-SEARCH.ay px up and down. The picture opens from there too.
 var SKY_Y = -95, SEARCH = {ax: 300, ay: 15};
-var T = {lookUp: 1100, warp: 1300, iris: 1500, fade: 900, caption: 700, cross: 1200, captionOut: 300,
-    lookIn: 650, minSearch: 1300, acquire: 750, focus: 1400, open: 650};
+// Durations in ms.
+var T = {
+    lookIn: 650,        // the eyepiece settles in
+    lookUp: 1100,       // with Look up: it rises while Jibo tilts his head
+    minSearch: 1300,    // it searches at least this long, even when the picture is in sooner
+    acquire: 750,       // it glides to the middle of the band
+    focus: 1400,        // the picture comes into focus inside the lens
+    iris: 1500,         // the iris opens to full screen
+    open: 650,          // the barrel opens outward and fades
+    warp: 1300,         // Starfield warp
+    caption: 700,       // caption fade-in
+    captionOut: 300,    // caption fade-out before a cross-fade
+    cross: 1200         // cross-fade to the next picture (slideshow)
+};
 
 function Presenter(PIXI, root, opts) {
     this.PIXI = PIXI; this.root = root; this.opts = opts || {};
@@ -103,19 +113,16 @@ Presenter.prototype.show = function (texture, info) {
     if (this.shown++ === 0) this.intro(texture, info); else this.next(texture, info);
 };
 
-// While the first picture loads, the eyepiece fades up out of the black straight away (user,
-// 2026-11-14: no white eye first, it is not Jibo's real eye) and searches until show() hands it
-// the picture. With Look up, the eyepiece first glances up while Jibo tilts his head.
+// While the first picture loads, the eyepiece shows at once and searches until show() hands it
+// the picture. With Look up, it first rises while Jibo tilts his head.
 Presenter.prototype.wait = function () {
     if (this.waiting || this.current || this.destroyed) return;   // not once a picture is placed (show() counts before intro())
     var self = this, cx = this.view.w / 2, cy = this.view.h / 2;
     var e = new eyepiece.Eyepiece(this.PIXI, this.layers.fx, {x: cx, y: cy, r: LENS_R, rand: this.rand});
-    var w = this.waiting = {eye: null, eyepiece: e, phase: 'lookIn', searchT: 0, lastMove: -1, progress: 0, ready: null,
-        path: null};
+    var w = this.waiting = {eyepiece: e, phase: 'lookIn', searchT: 0, lastMove: -1, progress: 0, ready: null, path: null};
     this.cue('look');
     var t = 0;
-    // Visible at once (no fade from black: the view itself already takes a moment to appear); it
-    // just settles into place.
+    // Visible at once (no fade from black); it just settles into place.
     this.run({update: function (dt) {
         if (w.done || util.destroyed(e.c)) return true;
         t = Math.min(T.lookIn, t + dt);
@@ -150,7 +157,8 @@ Presenter.prototype.glance = function (w) {
 Presenter.prototype.startSearch = function (w) {
     if (w.done || w.phase === 'search') return;
     w.phase = 'search';
-    w.path = new eyepiece.SearchPath(this.rand, {ax: SEARCH.ax, ay: SEARCH.ay, cy: SKY_Y, from: {dx: w.eyepiece.dx || 0, dy: w.eyepiece.dy || 0}});
+    var from = {dx: w.eyepiece.dx || 0, dy: w.eyepiece.dy || 0};
+    w.path = new eyepiece.SearchPath(this.rand, {ax: SEARCH.ax, ay: SEARCH.ay, cy: SKY_Y, from: from});
     this.cue('search');
 };
 // Searching: the eyepiece glides from spot to spot, pausing at each (SearchPath), the stars inside
@@ -179,7 +187,7 @@ Presenter.prototype.waitTick = function (w, dt) {
     }
     return false;
 };
-// Found it: glide back to the centre with the dial fully lit.
+// Found it: glide to the middle of the sky band with the dial fully lit.
 Presenter.prototype.acquire = function (w) {
     var e = w.eyepiece;
     w.phase = 'acquire'; w.acquireT = 0;
@@ -202,7 +210,6 @@ Presenter.prototype.endWait = function () {
     var w = this.waiting;
     if (!w) return;
     this.waiting = null; w.done = true;
-    if (w.eye) w.eye.destroy();
     if (w.eyepiece) w.eyepiece.destroy();
 };
 
@@ -214,9 +221,8 @@ Presenter.prototype.intro = function (texture, info) {
 };
 
 // Blurred copies of the picture for the focus pull, made once per picture on the CPU (no GPU
-// filter: the robot's GPU is weak): canvas 2D blur() (Chromium 52+) at a few sizes, most blurred
-// first; without ctx.filter, a downscale chain (128 -> 40 -> 12 px) stretched back up. They lie over
-// the sharp sprite and follow it (Ken Burns moves it).
+// filters on the robot): canvas blur() at a few sizes, or without ctx.filter a downscale chain
+// stretched back up. They lie over the sharp sprite and follow it (Ken Burns moves it).
 var BLUR_LEVELS = [{width: 480, blur: 1.5}, {width: 240, blur: 4}, {width: 160, blur: 9}];
 var DOWNSCALE_LEVELS = [{width: 128}, {width: 40}, {width: 12}];
 Presenter.prototype.blurLevels = function (entry) {
@@ -281,7 +287,8 @@ Presenter.prototype.focus = function (w, entry) {
     var t = 0, F = T.focus, ease = util.ease.inOutSine;
     this.run({update: function (dt) {
         if (entry !== self.current || entry.retired || w.done) {
-            if (lens && entry.holder.mask === lens) entry.holder.mask = null;   // it stays under the cross-fade: a destroyed mask breaks PIXI's render
+            // The holder stays on screen under the cross-fade, and a destroyed mask breaks PIXI's render.
+            if (lens && entry.holder.mask === lens) entry.holder.mask = null;
             util.dispose(lens); self.endWait(); return true;
         }
         t = Math.min(F, t + dt);
@@ -359,7 +366,8 @@ Presenter.prototype.next = function (texture, info) {
     this.captionDue = false;
     this.caption.fade(0, T.captionOut);
     if (this.fx.starfield) {
-        var w = new starfield.Warp(this.PIXI, this.layers.fx, {view: this.view, cx: this.view.w / 2, cy: this.view.h / 2, n: 140, duration: T.cross, rand: this.rand});
+        var w = new starfield.Warp(this.PIXI, this.layers.fx,
+            {view: this.view, cx: this.view.w / 2, cy: this.view.h / 2, n: 140, duration: T.cross, rand: this.rand});
         w.g.alpha = 0.6; this.run(w);
     }
     this.run(fadeThen(entry.holder, 0, 1, T.cross, function () { self.retire(old); }));
@@ -414,7 +422,6 @@ Presenter.prototype.destroy = function () {
     this.waiting = null; this.anims = []; this.events = []; this.current = null;
     if (waiting) {
         waiting.done = true;
-        if (waiting.eye) step(function () { waiting.eye.destroy(); });
         if (waiting.eyepiece) step(function () { waiting.eyepiece.destroy(); });
     }
     anims.forEach(function (a) { if (a.destroy) step(function () { a.destroy(); }); });
@@ -428,7 +435,6 @@ Presenter.prototype.destroy = function () {
 
 // Ken Burns keeps moving a picture until it has left the screen (also during its cross-fade out).
 function kenBurnsAnim(entry) { return {update: function (dt) { if (entry.retired) return true; entry.kb.update(dt); return false; }}; }
-function fade(obj, from, to, ms) { return fadeThen(obj, from, to, ms, null); }
 function fadeThen(obj, from, to, ms, then) {
     var t = 0;
     obj.alpha = from;

@@ -1,17 +1,16 @@
 'use strict';
-// Navigation, settings menus and timers of Stargazer, independent of PIXI and the SDK (tested).
+// Stargazer's navigation, settings menus and timers, without PIXI or the SDK.
 //
 // The base screen is the picture ('viewer'), or 'loading' / 'offline' before there is one. On
 // top of it: 'info' (tap the picture), and the menus 'settings' -> 'sources' | 'effects' | 'more'.
 // Swipe down goes back one level; on the base screen it leaves the skill (Jibo's eye returns).
 //
-// Timers (user, 2026-11-14): the picture stays for "Show for" seconds (default 10) and then Jibo's
-// eye returns; a touch on the picture restarts that time, and it waits while the info overlay or
-// a menu is open. A running slideshow keeps Stargazer open and moves on every N minutes.
-// Runs on the robot's Node 6: ES2015 only.
-var L = require('./layout'), S = require('./settings'), sources = require('./sources');
+// Timers: the picture stays for "Show for" seconds, then Jibo's eye returns. A touch on the
+// picture restarts that time, and it waits while the info overlay or a menu is open. A running
+// slideshow keeps Stargazer open and moves on every N minutes.
+var layout = require('./layout'), S = require('./settings'), sources = require('./sources');
 var REAL_TIMERS = {setTimeout: function (fn, ms) { return setTimeout(fn, ms); }, clearTimeout: function (h) { clearTimeout(h); }};
-var C = L.color;
+var C = layout.color;
 
 var TEXT = {
     settings: 'Settings', settingsStatus: 'Stargazer · the newest pictures of the sky',
@@ -42,9 +41,20 @@ var HUB = [
 var SOURCE_ICON = {hubble: 'hubble', webb: 'webb', noirlab: 'noirlab'};
 
 function showForText(seconds) {
-    return seconds === 0 ? 'Until I close it' : seconds < 60 ? seconds + ' seconds' : seconds === 60 ? '1 minute' : seconds / 60 + ' minutes';
+    if (seconds === 0) return 'Until I close it';
+    if (seconds < 60) return seconds + ' seconds';
+    if (seconds === 60) return '1 minute';
+    return seconds / 60 + ' minutes';
 }
-function slideshowText(minutes) { return minutes === 0 ? 'Off' : minutes === 1 ? 'Every minute' : 'Every ' + minutes + ' minutes'; }
+function slideshowText(minutes) {
+    if (minutes === 0) return 'Off';
+    if (minutes === 1) return 'Every minute';
+    return 'Every ' + minutes + ' minutes';
+}
+// A list tile's caption, caption colour and dimming.
+function active(caption) { return {caption: caption, captionColor: C.success, dim: false}; }
+function inactive(caption) { return {caption: caption, captionColor: C.caption, dim: true}; }
+function onOff(on) { return on ? active(TEXT.on) : inactive(TEXT.offTap); }
 
 class Model {
     // options: {timers, onChange(), onExit(), onNext(), onSave(values), onRetry()}
@@ -53,10 +63,14 @@ class Model {
         this.values = S.clean(values);
         this.timers = options.timers || REAL_TIMERS;
         this.hooks = {change: options.onChange, exit: options.onExit, next: options.onNext, save: options.onSave, retry: options.onRetry};
-        this.base = 'loading'; this.stack = [];
-        this.starts = {sources: 0, effects: 0, more: 0};
-        this.notice = null; this.picture = null; this.revealed = false;
-        this.closeTimer = null; this.slideTimer = null; this.closed = false;
+        this.base = 'loading';                              // 'loading' | 'viewer' | 'offline'
+        this.stack = [];                                    // screens on top: 'info', 'settings', a list
+        this.starts = {sources: 0, effects: 0, more: 0};    // first tile shown in each list
+        this.notice = null;                                 // a refusal shown in the status line
+        this.picture = null;                                // {item, isNew, source} on screen
+        this.revealed = false;                              // the picture is fully on screen
+        this.closeTimer = null; this.slideTimer = null;
+        this.closed = false;
     }
     call(name) { var fn = this.hooks[name]; if (fn && !this.closed) fn.apply(null, Array.prototype.slice.call(arguments, 1)); }
     emit() { this.call('change'); }
@@ -64,10 +78,19 @@ class Model {
     covered() { return this.stack.length > 0; }
 
     // ---------- base screen ----------
-    loading() { this.base = 'loading'; this.revealed = false; this.stopTimers(); this.emit(); }
-    offline() { this.base = 'offline'; this.revealed = false; this.stack = []; this.stopTimers(); this.emit(); }
+    setBase(base) {
+        this.base = base;
+        this.revealed = false;
+        this.stopTimers();
+    }
+    loading() { this.setBase('loading'); this.emit(); }
+    offline() { this.setBase('offline'); this.stack = []; this.emit(); }
     // A picture is on its way (item = catalog entry, extra = {isNew, sourceLabel}).
-    viewing(item, extra) { this.base = 'viewer'; this.picture = {item: item, isNew: !!(extra && extra.isNew), source: extra && extra.sourceLabel || ''}; this.revealed = false; this.stopTimers(); this.emit(); }
+    viewing(item, extra) {
+        this.setBase('viewer');
+        this.picture = {item: item, isNew: !!(extra && extra.isNew), source: extra && extra.sourceLabel || ''};
+        this.emit();
+    }
     // A new picture is loading: the timers wait (the info overlay keeps describing the one shown).
     pause() { this.revealed = false; this.stopTimers(); }
     // The picture is fully on screen: the "Show for" time starts now.
@@ -78,8 +101,19 @@ class Model {
         this.stopTimers();
         if (this.closed || this.base !== 'viewer' || !this.revealed || this.covered()) return;
         var self = this, close = S.closeAfter(this.values), slide = this.values.slideshow;
-        if (close > 0) this.closeTimer = this.timers.setTimeout(function () { self.closeTimer = null; self.call('exit'); }, close * 1000);
-        if (slide > 0) this.slideTimer = this.timers.setTimeout(function () { self.slideTimer = null; self.revealed = false; self.call('next', 1); }, slide * 60000);
+        if (close > 0) {
+            this.closeTimer = this.timers.setTimeout(function () {
+                self.closeTimer = null;
+                self.call('exit');
+            }, close * 1000);
+        }
+        if (slide > 0) {
+            this.slideTimer = this.timers.setTimeout(function () {
+                self.slideTimer = null;
+                self.revealed = false;
+                self.call('next');
+            }, slide * 60000);
+        }
     }
     stopTimers() {
         if (this.closeTimer) this.timers.clearTimeout(this.closeTimer);
@@ -122,17 +156,23 @@ class Model {
     // ---------- what the screen draws ----------
     listItems(list) {
         var v = this.values;
-        function onOff(on) { return on ? {caption: TEXT.on, captionColor: C.success, dim: false} : {caption: TEXT.offTap, captionColor: C.caption, dim: true}; }
-        if (list === 'sources') return S.SOURCES.map(function (id) {
-            return Object.assign({id: id, label: sources.get(id).label, icon: SOURCE_ICON[id]}, onOff(v.sources[id]));
-        });
-        if (list === 'effects') return EFFECTS.map(function (e) { return Object.assign({id: e.id, label: e.label, icon: e.icon}, onOff(v.effects[e.id])); });
+        if (list === 'sources') {
+            return S.SOURCES.map(function (id) {
+                return Object.assign({id: id, label: sources.get(id).label, icon: SOURCE_ICON[id]}, onOff(v.sources[id]));
+            });
+        }
+        if (list === 'effects') {
+            return EFFECTS.map(function (e) {
+                return Object.assign({id: e.id, label: e.label, icon: e.icon}, onOff(v.effects[e.id]));
+            });
+        }
         return MORE.map(function (m) {
-            var base = {id: m.id, label: m.label, icon: m.icon};
-            if (m.id === 'showFor') return Object.assign(base, v.slideshow ? {caption: 'Open while slideshow runs', captionColor: C.caption, dim: true} : {caption: showForText(v.showFor), captionColor: C.success, dim: false});
-            if (m.id === 'slideshow') return Object.assign(base, v.slideshow ? {caption: slideshowText(v.slideshow), captionColor: C.success, dim: false} : {caption: 'Off · tap to turn on', captionColor: C.caption, dim: true});
-            if (m.id === 'readTitle') return Object.assign(base, v.readTitle ? {caption: 'On · title only', captionColor: C.success, dim: false} : onOff(false));
-            return Object.assign(base, onOff(v[m.id]));
+            var base = {id: m.id, label: m.label, icon: m.icon}, state;
+            if (m.id === 'showFor') state = v.slideshow ? inactive('Open while slideshow runs') : active(showForText(v.showFor));
+            else if (m.id === 'slideshow') state = v.slideshow ? active(slideshowText(v.slideshow)) : inactive(TEXT.offTap);
+            else if (m.id === 'readTitle') state = v.readTitle ? active('On · title only') : onOff(false);
+            else state = onOff(v[m.id]);
+            return Object.assign(base, state);
         });
     }
     view() {
@@ -143,15 +183,20 @@ class Model {
             vm.title = TEXT.settings; vm.status = TEXT.settingsStatus;
             var captions = {sources: on + ' of ' + S.SOURCES.length + ' on', effects: fx + ' of ' + S.EFFECTS.length + ' on',
                 more: v.slideshow ? slideshowText(v.slideshow) : 'Show for ' + showForText(v.showFor).toLowerCase()};
-            vm.tiles = {kind: 'hub', items: HUB.map(function (h) { return {id: h.id, label: h.label, icon: h.icon, caption: captions[h.id], captionColor: C.muted}; })};
+            vm.tiles = {kind: 'hub', items: HUB.map(function (h) {
+                return {id: h.id, label: h.label, icon: h.icon, caption: captions[h.id], captionColor: C.muted};
+            })};
         } else if (top === 'sources' || top === 'effects' || top === 'more') {
             vm.title = TEXT[top]; vm.status = TEXT[top + 'Status'];
-            var items = this.listItems(top), count = items.length, start = L.clampStart(this.starts[top], count);
-            vm.tiles = {kind: 'list', list: top, items: items, start: start, pager: L.pagerBar(start, count),
-                canBack: start > 0, canForward: start < L.pageStart(L.pages(count) - 1, count)};
+            var items = this.listItems(top), count = items.length, start = layout.clampStart(this.starts[top], count);
+            vm.tiles = {kind: 'list', list: top, items: items, start: start, pager: layout.pagerBar(start, count),
+                canBack: start > 0, canForward: start < layout.pageStart(layout.pages(count) - 1, count)};
         } else if (top === 'offline') {
-            vm.title = TEXT.offlineTitle; vm.titleColor = C.danger; vm.body = TEXT.offlineBody; vm.button = {kind: 'retry', caption: TEXT.retry};
-        }   // loading: no text, the eyepiece says it all (user, 2026-11-14)
+            vm.title = TEXT.offlineTitle;
+            vm.titleColor = C.danger;
+            vm.body = TEXT.offlineBody;
+            vm.button = {kind: 'retry', caption: TEXT.retry};
+        }   // loading: no text, the eyepiece says it all
         if (this.notice) { vm.status = this.notice.text; vm.statusColor = this.notice.color; }
         return vm;
     }

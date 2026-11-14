@@ -1,5 +1,5 @@
 'use strict';
-// Small helpers shared by the effects. Plain ES2015 for the robot's Node 6 / Chromium 53.
+// Small helpers shared by the effects.
 
 // Seeded random (mulberry32), so a plan can be reproduced in tests and videos.
 function rng(seed) {

@@ -1,8 +1,7 @@
 'use strict';
-// The eyepiece (0.4.0, user 2026-11-14): while the picture loads, Jibo's eye turns into a telescope
-// eyepiece that slowly searches the sky. Colours come from Jibo's own telescope animation art
-// (jibo-anim-db-animations textures/emojis/telescope-*.png): slate barrel, cyan glass, white
-// highlight. The eyepiece is drawn with plain Graphics only (no filters: the robot's GPU is weak).
+// The telescope eyepiece that searches the sky while the picture loads. Colours come from Jibo's
+// own telescope animation art: slate barrel, cyan glass, white highlight. Plain Graphics only (no
+// filters: the robot's GPU is weak).
 //
 //   var e = new Eyepiece(PIXI, layer, {x, y, r, rand});
 //   e.setOffset(dx, dy)      // where it has wandered to (the stars inside move the other way)
@@ -19,13 +18,21 @@ var TICKS = 60;
 
 function Eyepiece(PIXI, layer, opts) {
     var r = this.r = opts.r || 150, rand = opts.rand || Math.random;
-    this.x0 = opts.x; this.y0 = opts.y; this.progress = 0; this.shownProgress = 0; this.litDrawn = -1; this.t = 0; this.drift = 0; this.dx = 0; this.dy = 0;
+    this.x0 = opts.x; this.y0 = opts.y;     // the centre it wanders from
+    this.dx = 0; this.dy = 0;               // where it has wandered to
+    this.progress = 0;                      // loading progress, 0..1
+    this.shownProgress = 0;                 // the lit ticks catch up with it smoothly
+    this.litDrawn = -1;                     // lit tick count last drawn
+    this.t = 0; this.drift = 0;             // time, and how far the sky has turned
     var c = this.c = new PIXI.Container();
     c.position.set(this.x0, this.y0);
 
     // Soft cyan halo outside the barrel: rings only, so nothing tints the lens (the picture shows there).
     var halo = new PIXI.Graphics();
-    for (var i = 0; i < 7; i++) { halo.lineStyle(9, PALETTE.cyanMid, 0.16 * (1 - i / 7)); halo.drawCircle(0, 0, r + 32 + i * 8); }
+    for (var i = 0; i < 7; i++) {
+        halo.lineStyle(9, PALETTE.cyanMid, 0.16 * (1 - i / 7));
+        halo.drawCircle(0, 0, r + 32 + i * 8);
+    }
     c.addChild(halo);
 
     // The sky inside the lens: black, with stars that slide past while it searches.
@@ -112,13 +119,11 @@ Eyepiece.prototype.destroy = function () {
     this.c = null;
 };
 
-// How the eyepiece looks around while it searches (user, 2026-11-14: "move around a bit more"):
-// it glides to a spot somewhere on the screen, pauses there as if looking, and moves on. Spots are
-// random (seeded) inside an ellipse of ax x ay around the centre, never too close to the last one.
-// Pure apart from the given rand (tested):  var path = new SearchPath(rand); path.at(tMs) ->
-// {dx, dy, move: index of the glide in progress or just finished, moving: true while gliding}.
-// opts: {ax, ay: half-widths of the ellipse; cy: its vertical centre (offset from the screen
-// centre); from: where the eyepiece starts}. Spots must be apart sideways (the band can be flat).
+// How the eyepiece looks around while it searches: it glides to a spot, pauses there as if
+// looking, and moves on. Spots are random (seeded) inside an ellipse and always well apart sideways.
+//   var path = new SearchPath(rand, {ax, ay, cy, from});   // ax, ay: half-widths; cy: the ellipse's
+//                                                           // vertical offset; from: start {dx, dy}
+//   path.at(tMs) -> {dx, dy, move: index of the current glide, moving: true while gliding}
 function SearchPath(rand, opts) {
     opts = opts || {};
     this.rand = rand || Math.random;

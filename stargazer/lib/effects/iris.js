@@ -1,8 +1,8 @@
 'use strict';
-// Telescope iris: Jibo's eye becomes a round lens that opens up to show the picture.
-// A circular Graphics mask grows from the eye's radius to the screen's half-diagonal, with a thin
-// glowing ring at its edge. radiusAt() is pure (tested).
+// Telescope iris: the eyepiece's lens opens up to show the whole picture. A circular Graphics mask
+// grows from the lens radius until it covers the screen, with a thin glowing ring at its edge.
 var util = require('./util');
+var PALETTE = require('./eyepiece').PALETTE;
 
 function coverRadius(view, cx, cy) {
     var dx = Math.max(cx, view.w - cx), dy = Math.max(cy, view.h - cy);
@@ -30,12 +30,17 @@ function Iris(PIXI, target, layer, opts) {
 Iris.prototype.draw = function () {
     var r = radiusAt(this.t, this.from, this.to, this.duration);
     var k = util.clamp01(this.t / this.duration);
-    this.mask.clear(); this.mask.beginFill(0xffffff, 1); this.mask.drawCircle(this.cx, this.cy, r); this.mask.endFill();
+    this.mask.clear();
+    this.mask.beginFill(0xffffff, 1);
+    this.mask.drawCircle(this.cx, this.cy, r);
+    this.mask.endFill();
     this.ring.clear();
     var a = 1 - util.ease.inCubic(k);                        // the ring fades as the lens opens
     if (a > 0.01) {
-        this.ring.lineStyle(14, 0x11CCDD, 0.2 * a); this.ring.drawCircle(this.cx, this.cy, r + 6);     // eyepiece palette (effects/eyepiece.js)
-        this.ring.lineStyle(5, 0x22EEFF, 0.85 * a); this.ring.drawCircle(this.cx, this.cy, r);
+        this.ring.lineStyle(14, PALETTE.cyanMid, 0.2 * a);
+        this.ring.drawCircle(this.cx, this.cy, r + 6);
+        this.ring.lineStyle(5, PALETTE.cyanLight, 0.85 * a);
+        this.ring.drawCircle(this.cx, this.cy, r);
     }
     return r;
 };

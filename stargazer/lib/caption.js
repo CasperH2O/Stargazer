@@ -3,7 +3,7 @@
 // "object · constellation · telescope", and the credit. Sizes follow the classic style guide:
 // nothing under 30 px, text inside the 80 px side margins and above the 40 px bottom margin.
 var util = require('./effects/util');
-var FONT = {title: 'Proxima Nova Soft', body: 'Proxima Nova Light'};
+var FONT = require('./layout').font;
 var X = 80, MAX_W = 1120;
 
 function gradientTexture(PIXI, h) {
@@ -15,7 +15,7 @@ function gradientTexture(PIXI, h) {
 }
 
 // Shrinks the font down to `min`, then ends the text with an ellipsis so it fits in maxW.
-function fit(PIXI, text, str, size, min, maxW) {
+function fit(text, str, size, min, maxW) {
     str = str || ' ';
     text.style.fontSize = size; text.text = str;
     while (text.width > maxW && text.style.fontSize > min) { text.style.fontSize -= 2; text.text = str; }
@@ -39,9 +39,9 @@ function Caption(PIXI, layer, view) {
 }
 // info {title, line, credit}
 Caption.prototype.set = function (info) {
-    fit(this.PIXI, this.title, info.title, 52, 40, MAX_W);
-    fit(this.PIXI, this.line, info.line, 36, 30, MAX_W);
-    fit(this.PIXI, this.credit, info.credit || '', 30, 30, MAX_W);  // formatted by sources.creditLine ("© … · CC BY 4.0")
+    fit(this.title, info.title, 52, 40, MAX_W);
+    fit(this.line, info.line, 36, 30, MAX_W);
+    fit(this.credit, info.credit || '', 30, 30, MAX_W);   // "© … · CC BY 4.0" (sources.creditLine)
     this.credit.visible = !!info.credit;
 };
 // Title anchor points for sparkles, in screen space.
