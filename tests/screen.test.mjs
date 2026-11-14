@@ -51,7 +51,7 @@ function harness(over = {}) {
     keep() {} release() {} count() { return 0; } close() { this.closed = true; }
   }
   const lists = over.lists || { a: [{ key: 'a1', source: 'a', title: 'A one' }] };
-  const orders = [];
+  const orders = [], jiboji = { played: 0, closed: 0 };
   class Catalog {
     order(ids, seen, history, random, avoid) { orders.push(avoid || null); return over.order || Object.keys(lists).filter((id) => id !== avoid).concat(avoid ? [avoid] : []); }
     list(id) { const l = lists[id]; return l instanceof Error ? Promise.reject(l) : Promise.resolve(l); }
@@ -61,9 +61,10 @@ function harness(over = {}) {
   class BeSkill { constructor() { this.log = { info: (t) => log.push(t), warn: (t) => log.push(t), error: (t) => log.push(t) }; } exit(o) { this.exited = o; } destroy(done) { done(); } }
   const Skill = createScreen(jibo, BeSkill, {
     store, Presenter, Images, Catalog, createArt: () => ({ pill: () => ({}), destroy() {} }), document: {},
-    Motion: class { move() {} close() {} }, closeMs: 50, watchdogMs: 20, giveUpMs: 60
+    Motion: class { move() {} close() { this.closed = true; jiboji.closed++; } jiboji() { jiboji.played++; return over.jiboji ? over.jiboji() : Promise.resolve('played'); } },
+    closeMs: 50, watchdogMs: 20, giveUpMs: 60
   });
-  return { jibo, views: jibo.face.views, skill: new Skill(), presenters, log, orders };
+  return { jibo, views: jibo.face.views, skill: new Skill(), presenters, log, orders, jiboji };
 }
 function close(skill) { return new Promise((resolve) => skill.close((error) => resolve(error))); }
 
@@ -92,9 +93,9 @@ test('a close whose remove fails leaves no view behind, and the next open makes 
   assert.match(String(error), /stargazer_view_close_failed/);   // Be resets the face on an error
   assert.equal(skill.view, null); assert.equal(skill.closing, null); assert.equal(skill.presenter, null);
   views.currentView = null;
-  skill.open();
+  skill.open(); await settle();
   assert.equal(views.created, 2, 'the second open is not a dead one');
-  await settle(); load(jibo, views.calls[2]);
+  load(jibo, views.calls[2]);
   assert.equal(skill.model.base, 'viewer');
   const again = close(skill); await settle(); views.calls[3].onComplete(); await again;
 });
@@ -116,8 +117,8 @@ test('a hidden view that cannot be cleaned up still clears the view (the open af
   assert.match(String(error), /hidden_view_cleanup_unavailable/);
   assert.equal(skill.view, null);
   views._viewProcess.active = false;
-  skill.open(); assert.equal(views.created, 2);
-  await settle(); load(jibo, views.calls[1]);
+  skill.open(); await settle(); assert.equal(views.created, 2);
+  load(jibo, views.calls[1]);
   const again = close(skill); await settle(); views.calls[2].onComplete(); await again;
 });
 
@@ -137,10 +138,10 @@ test('open while the last close is still running waits for it, then opens', asyn
 test('a view left over from a failed close is dropped on open', async () => {
   const { jibo, views, skill, log } = harness();
   skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
-  skill.open();                                      // Be opens again without a close (or after a reset)
+  skill.open(); await settle();                      // Be opens again without a close (or after a reset)
   assert.equal(views.created, 2);
-  assert.ok(log.some((l) => /dropping a view left from the last opening/.test(l)));
-  await settle(); load(jibo, views.calls[1]);
+  assert.ok(log.some((l) => /dropping state left from the last opening/.test(l)));
+  load(jibo, views.calls[1]);
   const again = close(skill); await settle(); views.calls[2].onComplete(); await again;
 });
 
@@ -169,5 +170,39 @@ test('one source per picture: a failing source falls back to another; the slides
   assert.equal(skill.current.item.key, 'b1');
   skill.next(); await settle();
   assert.deepEqual(orders, [null, 'b']);
+  const again = close(skill); await settle(); views.calls[1].onComplete(); await again;
+});
+
+test('the telescope jiboji plays on the real eye first; the view goes up when it is over', async () => {
+  let finish;
+  const { jibo, views, skill, presenters, jiboji } = harness({ jiboji: () => new Promise((resolve) => { finish = resolve; }) });
+  skill.open(); await settle();
+  assert.equal(jiboji.played, 1);
+  assert.equal(views.created, 0, 'no view while the jiboji plays (it would hide the eye)');
+  assert.ok(skill.pending, 'the picture loads meanwhile');
+  finish('played'); await settle();
+  assert.equal(views.created, 1);
+  load(jibo, views.calls[0]);
+  assert.equal(presenters[0].shows.length, 1);
+  assert.equal(skill.model.base, 'viewer');
+  const again = close(skill); await settle(); views.calls[1].onComplete(); await again;
+});
+
+test('closing during the jiboji stops it and never puts the view up', async () => {
+  let finish;
+  const { views, skill, jiboji } = harness({ jiboji: () => new Promise((resolve) => { finish = resolve; }) });
+  skill.open(); await settle();
+  assert.equal(await close(skill), undefined);
+  assert.equal(jiboji.closed, 1);
+  finish('stopped'); await settle();
+  assert.equal(views.created, 0);
+});
+
+test('a jiboji that fails or is missing still opens the view', async () => {
+  const { jibo, views, skill } = harness({ jiboji: () => Promise.resolve('anim_missing') });
+  skill.open(); await settle();
+  assert.equal(views.created, 1);
+  load(jibo, views.calls[0]);
+  assert.equal(skill.model.base, 'viewer');
   const again = close(skill); await settle(); views.calls[1].onComplete(); await again;
 });

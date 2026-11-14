@@ -9,7 +9,7 @@ Stargazer needs BEam 3.1.9 or newer and an internet connection.
 ## Using it
 
 1. Install **Stargazer** from BEacon's **Store → Skills**, or use **⋮ → Upload Skill ZIP** with a release's `Stargazer.zip`. It becomes a button in the main menu.
-2. Open it. Jibo's eye turns into a telescope lens, and the picture appears with a slow pan and zoom.
+2. Open it. Jibo first plays his own telescope animation (`jiboji_telescope_02`, about 6 seconds, with sound) while the picture downloads. Then his eye turns into a telescope lens, and the picture appears with a slow pan and zoom.
 3. The caption has three lines:
    - the title;
    - what the picture shows, for example **M 30 · Capricornus · Hubble**;

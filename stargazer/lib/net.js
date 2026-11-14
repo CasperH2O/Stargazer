@@ -7,7 +7,7 @@
 // Runs on the robot's Node 6: ES2015 only.
 var http = require('http'), https = require('https'), urlLib = require('url');
 
-var USER_AGENT = 'Stargazer/0.2 (Jibo skill)';
+var USER_AGENT = 'Stargazer/0.3 (Jibo skill)';
 var DEFAULT_MAX = 4 * 1024 * 1024, DEFAULT_TIMEOUT = 20000;
 
 function get(target, options, transport) {
