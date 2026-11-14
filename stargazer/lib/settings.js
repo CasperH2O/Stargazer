@@ -17,7 +17,7 @@ var SEEN_MAX = 300;
 
 var DEFAULTS = {
     sources: {hubble: true, webb: true, noirlab: true},
-    effects: {kenBurns: true, iris: true, lookUp: false, starfield: false},
+    effects: {kenBurns: true, iris: true, lookUp: true, starfield: false},   // D29
     showFor: 10,
     slideshow: 0,
     readTitle: true,       // the title only, never the description

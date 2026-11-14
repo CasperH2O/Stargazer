@@ -39,7 +39,7 @@ On the picture:
 |---|---|---|
 | Ken Burns | a slow pan and zoom across the picture; tall pictures are panned top to bottom | on |
 | Telescope iris | Jibo's eye becomes a round lens that opens up into the picture | on |
-| Look up | the eyepiece rises while Jibo tilts his head towards the sky | off |
+| Look up | the eyepiece rises while Jibo tilts his head towards the sky | on |
 | Starfield | stars stream out of the lens as the picture opens, then sparkle by the title | off |
 
 **More:**

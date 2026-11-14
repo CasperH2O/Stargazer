@@ -78,7 +78,7 @@ test('settings hub summarises; offline shows a retry', () => {
   const { model } = setup();
   model.viewing(ITEM, {}); model.openSettings();
   const vm = model.view();
-  assert.deepEqual(vm.tiles.items.map((i) => i.caption), ['3 of 3 on', '2 of 4 on', 'Show for 10 seconds']);
+  assert.deepEqual(vm.tiles.items.map((i) => i.caption), ['3 of 3 on', '3 of 4 on', 'Show for 10 seconds']);
   model.offline();
   assert.equal(model.view().button.kind, 'retry');
 });

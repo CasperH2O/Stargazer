@@ -4,6 +4,8 @@
     python3 tools/package.py [--output dist/Stargazer.zip]
 
 Layout (BEam docs/custom-skills.md): manifest.json, icon.png, banner.png and README.md at the root,
+where README.md is the store text from store/README.md (BEacon's simple Markdown: headings, paragraphs,
+flat lists, bold; no tables), not the developer README,
 and one package root, stargazer/, holding the @be/stargazer asset-pack with its
 JavaScript main. No npm or build step runs on the robot, so the ZIP carries everything.
 The ZIP is deterministic (sorted entries, fixed timestamps, no exec bits) and checked
@@ -20,7 +22,8 @@ HERE = Path(__file__).resolve().parents[1]
 SKILL = 'stargazer'
 MAX_ZIP, MAX_EXPANDED, MAX_ENTRIES = 32 * 1024 * 1024, 64 * 1024 * 1024, 1024
 STAMP = (2026, 1, 1, 0, 0, 0)
-STORE_FILES = ['manifest.json', 'icon.png', 'banner.png', 'README.md']
+STORE_FILES = {'manifest.json': 'manifest.json', 'icon.png': 'icon.png', 'banner.png': 'banner.png',
+               'README.md': 'store/README.md'}     # ZIP name: source file
 
 
 def check_package():
@@ -39,7 +42,7 @@ def check_package():
 
 
 def collect():
-    entries = {name: (HERE / name).read_bytes() for name in STORE_FILES}
+    entries = {name: (HERE / source).read_bytes() for name, source in STORE_FILES.items()}
     entries[f'{SKILL}/LICENSE'] = (HERE / 'LICENSE').read_bytes()     # the MIT licence travels with the code
     for file in sorted((HERE / SKILL).rglob('*')):
         if file.is_file() and '__pycache__' not in file.parts and not file.name.startswith('.'):

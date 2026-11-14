@@ -8,7 +8,7 @@ const S = lib('settings.js');
 
 test('defaults: calm effects, 10 s, no slideshow, read title, every source on', () => {
   const v = S.clean();
-  assert.deepEqual(v.effects, { kenBurns: true, iris: true, lookUp: false, starfield: false });
+  assert.deepEqual(v.effects, { kenBurns: true, iris: true, lookUp: true, starfield: false });
   assert.equal(v.showFor, 10); assert.equal(v.slideshow, 0); assert.equal(v.readTitle, true); assert.equal(v.caption, true);
   assert.deepEqual(v.sources, { hubble: true, webb: true, noirlab: true });
   assert.deepEqual(S.enabledSources(v), ['hubble', 'webb', 'noirlab']);
