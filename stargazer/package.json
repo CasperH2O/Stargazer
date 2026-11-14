@@ -1,6 +1,6 @@
 {
   "name": "@be/stargazer",
-  "version": "0.3.0",
+  "version": "0.2.0",
   "description": "An astronomy picture of the day on Jibo's screen, from NASA, ESA/Hubble, ESA/Webb, ESO, NOIRLab and NASA EPIC, with its name, where it is and who took it.",
   "license": "MIT",
   "main": "index.js",

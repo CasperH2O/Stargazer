@@ -38,7 +38,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.token = 0; this.loop = null; this.retryTimer = null; this.watchdog = null;
             this.slide = {x: 0, velocity: 0, target: 0}; this.dragging = null; this.animation = null; this.pan = null; this.tapping = false;
             this.spoken = null; this.speaking = false; this.dirty = false; this.sourcesKey = null; this.store = null; this.seen = []; this.history = {};
-            this.onScreen = {}; this.current = null; this.pending = null; this.opening = null; this.loadingSince = 0; this.openedAt = 0; this.openings = 0;
+            this.onScreen = {}; this.current = null; this.pending = null; this.loadingSince = 0; this.openedAt = 0; this.openings = 0;
         }
         // Milliseconds since this opening started, for the log.
         since() { return (Date.now() - this.openedAt) + ' ms'; }
@@ -57,8 +57,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 return;
             }
             // Left over from an opening whose close failed (Be then resets the face): start clean.
-            if (this.view || this.model) {
-                this.diagnostics.warn('open #' + this.openings + ': dropping state left from the last opening (view', (this.view ? this.view.state : 'none') + ')');
+            if (this.view) {
+                this.diagnostics.warn('open #' + this.openings + ': dropping a view left from the last opening (state', this.view.state + ')');
                 this.halt(); this.disposeDecor(); this.view = null;
                 if (this.model) { this.model.close(); this.model = null; }
             }
@@ -79,19 +79,6 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.motion = new MotionClass(jibo, this.diagnostics);
             this.images = new ImagesClass({PIXI: global.PIXI, net: deps.net || net, log: this.diagnostics});
             this.catalog = new CatalogClass({net: deps.net || net, log: this.diagnostics});
-            this.diagnostics.info('opened #' + this.openings + '; sources', S.enabledSources(values).join(','), '; effects', S.EFFECTS.filter(function (k) { return values.effects[k]; }).join(',') || 'none');
-            // The picture loads while Jibo looks through his telescope (the jiboji plays on his real
-            // eye, which our view would hide); the view goes up when the jiboji is over.
-            this.start();
-            var opening = this.opening = {};
-            this.motion.jiboji().then(function () {
-                if (self.opening !== opening || !self.model || self.closing) return;
-                self.opening = null;
-                self.showView();
-            });
-        }
-        showView() {
-            var self = this, views = jibo.face.views;
             this.view = views.createView('View', this.config(views));
             this.view.viewStateStacked = true;
             this.view.addAction(views.ActionData.CALLBACK, {callback: function () { self.swipeDown(); }}, true, false, views.GESTURE.SWIPE_DOWN);
@@ -101,6 +88,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 function () { if (ours()) { self.diagnostics.info('view open after', self.since()); self.render(); } },
                 function () { self.diagnostics.warn('view failed to open after', self.since()); if (ours()) self.leave(); },
                 function () { if (ours()) { self.diagnostics.info('view loaded after', self.since()); self.ensureDecor(); self.render(); } });
+            this.diagnostics.info('opened #' + this.openings + '; sources', S.enabledSources(values).join(','), '; effects', S.EFFECTS.filter(function (k) { return values.effects[k]; }).join(',') || 'none');
+            this.start();
         }
 
         // ---------- pictures ----------
@@ -155,7 +144,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (next.token !== this.token || !this.model) return;
             if (!this.presenter) {
                 this.pending = next;
-                this.diagnostics.info('picture ready before the view: waiting for it (' + this.since() + ')');
+                this.diagnostics.info('picture ready before the view: waiting for it');
                 return;
             }
             this.pending = null;
@@ -561,7 +550,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
 
         // ---------- closing ----------
         halt() {
-            this.token++; this.loop = null; this.pending = null; this.opening = null;
+            this.token++; this.loop = null; this.pending = null;
             clearTimeout(this.retryTimer); this.retryTimer = null;
             this.disarmWatchdog();
             this.panning(false); this.animation = null; this.dragging = null; this.slide = {x: 0, velocity: 0, target: 0};
