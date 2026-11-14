@@ -1,0 +1,24 @@
+{
+  "name": "@be/stargazer",
+  "version": "0.1.0",
+  "description": "An astronomy picture of the day on Jibo's screen, from NASA, ESA/Hubble, ESA/Webb, ESO, NOIRLab and NASA EPIC, with its name, where it is and who took it.",
+  "main": "index.js",
+  "config": {
+    "standalone": true
+  },
+  "jibo": {
+    "main": "index.html",
+    "type": "asset-pack",
+    "launchRule": "launch.rule",
+    "prompt": "Stargazer",
+    "display-name": "stargazer"
+  },
+  "engines": {
+    "node": ">=6.0"
+  },
+  "dependencies": {},
+  "syncDependencies": [
+    "jibo",
+    "@be/be-framework"
+  ]
+}

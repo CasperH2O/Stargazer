@@ -1,0 +1,7 @@
+# Builds and runtime state never enter Git (release ZIPs are attached to GitHub releases).
+/dist/
+node_modules/
+__pycache__/
+*.pyc
+*.log
+.DS_Store

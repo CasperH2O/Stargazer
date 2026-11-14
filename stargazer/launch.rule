@@ -1,0 +1,1 @@
+TopRule = $* ((stargazer) | (open stargazer) | (astronomy picture) | (astronomy picture of the day) | (picture of the day) | (show me the stars) | (show me space) | (space picture)) $* {skill='\@be/stargazer'};

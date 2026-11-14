@@ -1,0 +1,114 @@
+'use strict';
+// The person's choices, in <data root>/settings.json. That folder belongs to Stargazer and
+// outlives skill updates (BEacon keeps custom-skill data under Knowledge/beacon on the robot and
+// /tmp/beam-beacon in development and the simulator). Pictures are NEVER written here or
+// anywhere: they live in memory only. Besides settings.json there is seen.json, a short list of
+// picture ids already shown (for the "New" badge), capped at SEEN_MAX entries.
+// Runs on the robot's Node 6: ES2015 only.
+var fs = require('fs'), path = require('path');
+
+var NAME = 'stargazer';
+var SOURCES = ['apod', 'hubble', 'webb', 'eso', 'noirlab', 'nasa-iotd', 'epic', 'esa-efs'];
+var EFFECTS = ['kenBurns', 'iris', 'lookUp', 'starfield'];
+var SHOW_FOR = [10, 30, 60, 300, 0];   // seconds before Jibo's eye returns; 0 = until closed
+var SLIDESHOW = [0, 1, 5, 30];         // minutes between pictures; 0 = off
+var SEEN_MAX = 300;
+
+var DEFAULTS = {
+    sources: {apod: true, hubble: true, webb: true, eso: true, noirlab: true, 'nasa-iotd': true, epic: true, 'esa-efs': false},
+    // Calmer defaults (user, 2026-11-14): the pan-and-zoom and the iris; look-up and starfield off.
+    effects: {kenBurns: true, iris: true, lookUp: false, starfield: false},
+    showFor: 10,
+    slideshow: 0,
+    readTitle: true,       // the title only, never the description
+    caption: true
+};
+
+function copyDefaults() { return JSON.parse(JSON.stringify(DEFAULTS)); }
+function bools(given, keys, fallback) {
+    var out = {};
+    keys.forEach(function (key) { out[key] = given && typeof given[key] === 'boolean' ? given[key] : fallback[key]; });
+    return out;
+}
+// Known keys with valid values only; anything else falls back to its default. At least one
+// source stays on.
+function clean(values) {
+    var given = values && typeof values === 'object' ? values : {}, d = DEFAULTS;
+    var out = {
+        sources: bools(given.sources, SOURCES, d.sources),
+        effects: bools(given.effects, EFFECTS, d.effects),
+        showFor: SHOW_FOR.indexOf(given.showFor) >= 0 ? given.showFor : d.showFor,
+        slideshow: SLIDESHOW.indexOf(given.slideshow) >= 0 ? given.slideshow : d.slideshow,
+        readTitle: typeof given.readTitle === 'boolean' ? given.readTitle : d.readTitle,
+        caption: typeof given.caption === 'boolean' ? given.caption : d.caption
+    };
+    if (!SOURCES.some(function (id) { return out.sources[id]; })) out.sources = copyDefaults().sources;
+    return out;
+}
+
+function onRobot() { return fs.existsSync('/opt/jibo/Jibo/Skills'); }
+function dataRoot() {
+    if (process.env.STARGAZER_DATA_DIR) return path.resolve(process.env.STARGAZER_DATA_DIR);
+    return onRobot() ? '/opt/jibo/Knowledge/beacon/custom-skills/' + NAME : '/tmp/beam-beacon/custom-skills/' + NAME;
+}
+// mkdir -p with private (0700) directories.
+function ensureDirectory(dir) {
+    try { fs.mkdirSync(dir, 448); }
+    catch (error) {
+        if (error.code === 'ENOENT') { ensureDirectory(path.dirname(dir)); fs.mkdirSync(dir, 448); }
+        else if (error.code !== 'EEXIST' || !fs.statSync(dir).isDirectory()) throw error;
+    }
+    return dir;
+}
+function readJson(file, limit) {
+    try {
+        var st = fs.statSync(file);
+        if (!st.isFile() || st.size > limit) return null;
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch (_) { return null; }
+}
+// Atomic: a half-written file is never read back.
+function writeJson(root, name, value) {
+    ensureDirectory(root);
+    var target = path.join(root, name), temporary = target + '.tmp';
+    fs.writeFileSync(temporary, JSON.stringify(value) + '\n', {mode: 384});
+    fs.renameSync(temporary, target);
+    try { fs.chmodSync(target, 384); } catch (_) { /* the simulator's file system keeps host modes */ }
+}
+
+class Store {
+    constructor(root) { this.root = root || dataRoot(); }
+    read() { return clean(readJson(path.join(this.root, 'settings.json'), 4096)); }
+    write(values) { var v = clean(values); writeJson(this.root, 'settings.json', v); return v; }
+    seen() { var list = readJson(path.join(this.root, 'seen.json'), 64 * 1024); return Array.isArray(list) ? list.filter(function (x) { return typeof x === 'string'; }).slice(-SEEN_MAX) : []; }
+    markSeen(list, id) {
+        if (list.indexOf(id) >= 0) return list;
+        var next = list.concat([id]).slice(-SEEN_MAX);
+        try { writeJson(this.root, 'seen.json', next); } catch (_) {}
+        return next;
+    }
+}
+
+// Settings rules used by the menus (pure).
+function toggleSource(values, id) {
+    var v = clean(values);
+    if (v.sources[id] && SOURCES.filter(function (s) { return v.sources[s]; }).length === 1) return {values: v, refused: 'lastSource'};
+    v.sources[id] = !v.sources[id];
+    return {values: v};
+}
+function toggleEffect(values, id) { var v = clean(values); v.effects[id] = !v.effects[id]; return {values: v}; }
+function cycle(list, value) { return list[(list.indexOf(value) + 1) % list.length]; }
+function nextShowFor(values) { var v = clean(values); v.showFor = cycle(SHOW_FOR, v.showFor); return {values: v}; }
+function nextSlideshow(values) { var v = clean(values); v.slideshow = cycle(SLIDESHOW, v.slideshow); return {values: v}; }
+function toggle(values, key) { var v = clean(values); v[key] = !v[key]; return {values: v}; }
+function enabledSources(values) { return SOURCES.filter(function (id) { return values.sources[id]; }); }
+// Seconds the picture stays before Jibo's eye returns, or 0 for "until closed". A running
+// slideshow keeps Stargazer open.
+function closeAfter(values) { return values.slideshow ? 0 : values.showFor; }
+
+module.exports = {
+    NAME: NAME, SOURCES: SOURCES, EFFECTS: EFFECTS, SHOW_FOR: SHOW_FOR, SLIDESHOW: SLIDESHOW, DEFAULTS: DEFAULTS, SEEN_MAX: SEEN_MAX,
+    clean: clean, dataRoot: dataRoot, onRobot: onRobot, Store: Store,
+    toggleSource: toggleSource, toggleEffect: toggleEffect, nextShowFor: nextShowFor, nextSlideshow: nextSlideshow, toggle: toggle,
+    enabledSources: enabledSources, closeAfter: closeAfter
+};
