@@ -48,7 +48,7 @@ function harness(over = {}) {
   class Images {
     constructor() { this.live = {}; this.closed = false; }
     load(item) { return over.imageLoad ? over.imageLoad(item) : Promise.resolve({ key: item.key, texture: { key: item.key } }); }
-    keep() {} release() {} count() { return 0; } close() { this.closed = true; }
+    keep() {} release() {} showing() {} retired() {} count() { return 0; } close() { this.closed = true; }
   }
   const lists = over.lists || { a: [{ key: 'a1', source: 'a', title: 'A one' }] };
   const orders = [];

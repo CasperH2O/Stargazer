@@ -11,30 +11,17 @@
 //   p.show(texture, {title, line, credit});   // first call: the opening; later calls cross-fade
 //   p.update(dtMs); ... p.destroy();
 //
-// The opening: an eyepiece searches the sky near the top of the screen; once the picture is in,
-// the picture comes into focus inside the lens and the iris opens it to full screen (D24, D27).
+// The first picture appears through the opening (lib/opening.js); later ones cross-fade.
 // opts.onCue(name) marks the moments for sound: 'look', 'search', 'move', 'found', 'reveal'.
 var util = require('./effects/util');
 var kenburns = require('./effects/kenburns');
-var Iris = require('./effects/iris').Iris;
 var starfield = require('./effects/starfield');
-var eyepiece = require('./effects/eyepiece');
+var Opening = require('./opening').Opening;
+var OPENING_TIMING = require('./opening').TIMING;
 var Caption = require('./caption').Caption;
 
-var LENS_R = 180;                       // the eyepiece's lens radius
-// The eyepiece searches a band near the top of the screen: SKY_Y above the centre, +-SEARCH.ax px
-// sideways and +-SEARCH.ay px up and down. The picture opens from there too.
-var SKY_Y = -95, SEARCH = {ax: 300, ay: 15};
-// Durations in ms.
+// Durations in ms (the opening's are in lib/opening.js).
 var T = {
-    lookIn: 650,        // the eyepiece settles in
-    lookUp: 1100,       // with Look up: it rises while Jibo tilts his head
-    minSearch: 1300,    // it searches at least this long, even when the picture is in sooner
-    acquire: 750,       // it glides to the middle of the band
-    focus: 1400,        // the picture comes into focus inside the lens
-    iris: 1500,         // the iris opens to full screen
-    open: 650,          // the barrel opens outward and fades
-    warp: 1300,         // Starfield warp
     caption: 700,       // caption fade-in
     captionOut: 300,    // caption fade-out before a cross-fade
     cross: 1200         // cross-fade to the next picture (slideshow)
@@ -113,111 +100,30 @@ Presenter.prototype.show = function (texture, info) {
     if (this.shown++ === 0) this.intro(texture, info); else this.next(texture, info);
 };
 
-// While the first picture loads, the eyepiece shows at once and searches until show() hands it
-// the picture. With Look up, it first rises while Jibo tilts his head.
+// While the first picture loads, the opening's eyepiece searches the sky until show() hands it
+// the picture.
 Presenter.prototype.wait = function () {
     if (this.waiting || this.current || this.destroyed) return;   // not once a picture is placed (show() counts before intro())
-    var self = this, cx = this.view.w / 2, cy = this.view.h / 2;
-    var e = new eyepiece.Eyepiece(this.PIXI, this.layers.fx, {x: cx, y: cy, r: LENS_R, rand: this.rand});
-    var w = this.waiting = {eyepiece: e, phase: 'lookIn', searchT: 0, lastMove: -1, progress: 0, ready: null, path: null};
-    this.cue('look');
-    var t = 0;
-    // Visible at once (no fade from black); it just settles into place.
-    this.run({update: function (dt) {
-        if (w.done || util.destroyed(e.c)) return true;
-        t = Math.min(T.lookIn, t + dt);
-        var k = util.ease.outCubic(t / T.lookIn);
-        e.c.scale.set(util.lerp(1.06, 1, k));
-        if (t < T.lookIn) return false;
-        if (self.fx.lookUp) self.glance(w); else self.startSearch(w);
-        return true;
-    }});
-    this.run({update: function (dt) { return self.waitTick(w, dt); }});
+    this.waiting = new Opening(this);
+    this.waiting.start();
 };
-// Look up: the eyepiece rises to the sky band near the top (stretching a little as it moves) and
-// stays there, while the body tilts up and centres again (onLookUp 'up', then 'centre').
-Presenter.prototype.glance = function (w) {
-    var self = this, e = w.eyepiece, onMove = this.opts.onLookUp || function () {}, t = 0, D = T.lookUp, centred = false;
-    w.phase = 'glance';
-    onMove('up');
-    this.run({update: function (dt) {
-        if (w.done) return true;
-        t = Math.min(D, t + dt);
-        var k = t / D, rise = util.ease.outBack(util.clamp01(k / 0.7)), moving = Math.sin(Math.PI * util.clamp01(k / 0.7));
-        if (!util.destroyed(e.c)) { e.setOffset(0, SKY_Y * rise); e.c.scale.set(1 - 0.06 * moving, 1 + 0.08 * moving); }
-        if (!centred && k >= 0.6) { centred = true; onMove('centre'); }
-        if (t < D) return false;
-        if (!util.destroyed(e.c)) e.c.scale.set(1, 1);
-        self.startSearch(w);
-        return true;
-    }});
-};
-// Searching starts where the eyepiece is (the centre, or up already after Look up); without Look up
-// its first glide takes it up to the sky band.
-Presenter.prototype.startSearch = function (w) {
-    if (w.done || w.phase === 'search') return;
-    w.phase = 'search';
-    var from = {dx: w.eyepiece.dx || 0, dy: w.eyepiece.dy || 0};
-    w.path = new eyepiece.SearchPath(this.rand, {ax: SEARCH.ax, ay: SEARCH.ay, cy: SKY_Y, from: from});
-    this.cue('search');
-};
-// Searching: the eyepiece glides from spot to spot, pausing at each (SearchPath), the stars inside
-// sliding past and the dial twitching like a focus knob. A creak of the tripod as each glide starts.
-// Once the picture is in (and it has searched for at least T.minSearch, so a fast load still feels
-// like looking), it glides to the middle of the sky band, where the picture comes into focus.
-Presenter.prototype.waitTick = function (w, dt) {
-    if (w.done) return true;
-    var e = w.eyepiece;
-    if (!e || util.destroyed(e.c)) return false;
-    if (w.phase === 'focus') return true;                      // the focus pull animates it from here
-    e.update(dt);
-    if (w.phase === 'search') {
-        w.searchT += dt;
-        var p = w.path.at(w.searchT);
-        e.setOffset(p.dx, p.dy);
-        e.setDial(0.16 * Math.sin(2 * Math.PI * w.searchT / 4300) + 0.05 * p.dx / 100);
-        if (p.move > w.lastMove) { w.lastMove = p.move; if (p.move > 0) this.cue('move'); }
-        if (w.ready && w.searchT >= T.minSearch) this.acquire(w);
-    } else if (w.phase === 'acquire') {
-        w.acquireT = Math.min(T.acquire, w.acquireT + dt);
-        var k = util.ease.inOutCubic(w.acquireT / T.acquire);
-        e.setOffset(util.lerp(w.from.dx, 0, k), util.lerp(w.from.dy, SKY_Y, k));
-        e.setDial(util.lerp(w.from.dial, 0, k));
-        if (w.acquireT >= T.acquire) { w.phase = 'focus'; this.focus(w, w.ready); return true; }
-    }
-    return false;
-};
-// Found it: glide to the middle of the sky band with the dial fully lit.
-Presenter.prototype.acquire = function (w) {
-    var e = w.eyepiece;
-    w.phase = 'acquire'; w.acquireT = 0;
-    w.from = {dx: e.dx, dy: e.dy, dial: e.dial.rotation};
-    e.setProgress(1);
-    this.cue('found');
-};
-// Loading progress (0..1) lights the dial's ticks; it only ever goes up.
+// Loading progress (0..1) lights the eyepiece's dial; it only ever goes up.
 Presenter.prototype.progress = function (p) {
-    var w = this.waiting;
-    if (!w) return;
-    w.progress = Math.max(w.progress, p);
-    if (w.eyepiece) w.eyepiece.setProgress(w.progress);
+    if (this.waiting) this.waiting.setProgress(p);
 };
 Presenter.prototype.cue = function (name) {
     if (this.opts.onCue) try { this.opts.onCue(name); } catch (_) {}
 };
-// Ends the loading look at once (the opening was replaced, or the presenter goes away).
+// Ends the opening at once (a newer picture replaced it).
 Presenter.prototype.endWait = function () {
-    var w = this.waiting;
-    if (!w) return;
-    this.waiting = null; w.done = true;
-    if (w.eyepiece) w.eyepiece.destroy();
+    if (this.waiting) this.waiting.end();
 };
 
 Presenter.prototype.intro = function (texture, info) {
     if (!this.waiting) this.wait();                            // the opening always looks through the eyepiece
     var entry = this.current = this.place(texture);
     this.caption.set(info);
-    this.waiting.ready = entry;
+    this.waiting.setReady(entry);
 };
 
 // Blurred copies of the picture for the focus pull, made once per picture on the CPU (no GPU
@@ -270,74 +176,6 @@ Presenter.prototype.dropBlur = function (entry) {
     });
 };
 
-// The focus pull: inside the lens (with the iris; full screen without it) the picture comes up from
-// black, very blurred, and sharpens in two steps while the focus dial turns.
-Presenter.prototype.focus = function (w, entry) {
-    var self = this, PIXI = this.PIXI, fx = this.fx, view = this.view, cx = view.w / 2, cy = view.h / 2 + SKY_Y, e = w.eyepiece;
-    if (!entry || entry !== this.current || entry.retired) { this.endWait(); if (entry) this.retire(entry); return; }
-    var inLens = !!fx.iris, lens = null;
-    this.layers.pic.addChild(entry.holder);
-    if (entry.kb) this.run(kenBurnsAnim(entry));
-    var blur = this.blurLevels(entry);
-    if (inLens) {
-        lens = new PIXI.Graphics(); lens.beginFill(0xffffff, 1); lens.drawCircle(cx, cy, LENS_R); lens.endFill();
-        this.layers.fx.addChild(lens);
-        entry.holder.mask = lens;
-    } else entry.holder.alpha = 0;
-    var t = 0, F = T.focus, ease = util.ease.inOutSine;
-    this.run({update: function (dt) {
-        if (entry !== self.current || entry.retired || w.done) {
-            // The holder stays on screen under the cross-fade, and a destroyed mask breaks PIXI's render.
-            if (lens && entry.holder.mask === lens) entry.holder.mask = null;
-            util.dispose(lens); self.endWait(); return true;
-        }
-        t = Math.min(F, t + dt);
-        var from = ease(util.progress(t, 0, F * 0.35));        // out of the black
-        if (inLens) e.setInterior(1 - from);
-        else { entry.holder.alpha = from; e.c.alpha = 1 - ease(util.progress(t, 0, F * 0.5)); }
-        // Most blurred first: each level fades in turn, uncovering the next sharper one.
-        blur.forEach(function (b, i) {
-            var span = 0.72 / blur.length;
-            b.sprite.alpha = 1 - ease(util.progress(t, F * (0.28 + i * span), F * span));
-        });
-        self.followBlur(entry);
-        e.setDial(0.9 * util.ease.inOutCubic(t / F));         // the focus knob turns
-        e.update(dt);
-        if (t < F) return false;
-        self.reveal(w, entry, lens);
-        return true;
-    }});
-};
-
-// In focus: the iris opens the lens to the whole screen and the barrel opens outward and fades.
-Presenter.prototype.reveal = function (w, entry, lens) {
-    var self = this, fx = this.fx, PIXI = this.PIXI, view = this.view, cx = view.w / 2, cy = view.h / 2 + SKY_Y, e = w.eyepiece;
-    this.dropBlur(entry);
-    this.waiting = null; w.done = true;
-    this.cue('reveal');
-    if (lens) {
-        if (entry.holder.mask === lens) entry.holder.mask = null;
-        util.dispose(lens);
-        this.run(new Iris(PIXI, entry.holder, this.layers.fx, {view: view, cx: cx, cy: cy, from: LENS_R, duration: T.iris}));
-    }
-    if (fx.starfield) {
-        var warp = new starfield.Warp(PIXI, this.layers.fx, {view: view, cx: cx, cy: cy, duration: T.warp, rand: this.rand});
-        this.layers.fx.setChildIndex(warp.g, 0);
-        this.run(warp);
-    }
-    var t = 0, a0 = util.destroyed(e.c) ? 0 : e.c.alpha;
-    this.run({update: function (dt) {
-        if (util.destroyed(e.c)) return true;
-        t = Math.min(T.open, t + dt);
-        var k = t / T.open;
-        e.c.scale.set(1 + 0.5 * util.ease.inCubic(k)); e.c.alpha = a0 * (1 - util.ease.outCubic(k));
-        if (t < T.open) return false;
-        e.destroy();
-        return true;
-    }});
-    this.at((lens ? T.iris : 0) + 150, function () { self.showCaption(entry); });
-};
-
 // The picture is in: its caption shows and the owner hears about it (onShown(texture)), once per
 // picture and only while it is still the current one.
 Presenter.prototype.showCaption = function (entry) {
@@ -362,7 +200,7 @@ Presenter.prototype.next = function (texture, info) {
     var entry = this.current = this.place(texture);
     entry.holder.alpha = 0;
     this.layers.pic.addChild(entry.holder);
-    if (entry.kb) this.run(kenBurnsAnim(entry));
+    this.startKenBurns(entry);
     this.captionDue = false;
     this.caption.fade(0, T.captionOut);
     if (this.fx.starfield) {
@@ -420,10 +258,7 @@ Presenter.prototype.destroy = function () {
     function step(fn) { try { fn(); } catch (error) { if (!first) first = error; } }
     var waiting = this.waiting, anims = this.anims, entries = this.entries.slice(), layers = this.layers;
     this.waiting = null; this.anims = []; this.events = []; this.current = null;
-    if (waiting) {
-        waiting.done = true;
-        if (waiting.eyepiece) step(function () { waiting.eyepiece.destroy(); });
-    }
+    if (waiting) step(function () { waiting.end(); });
     anims.forEach(function (a) { if (a.destroy) step(function () { a.destroy(); }); });
     entries.forEach(function (entry) { step(this.retire.bind(this, entry)); }, this);
     step(this.caption.destroy.bind(this.caption));
@@ -434,7 +269,15 @@ Presenter.prototype.destroy = function () {
 };
 
 // Ken Burns keeps moving a picture until it has left the screen (also during its cross-fade out).
-function kenBurnsAnim(entry) { return {update: function (dt) { if (entry.retired) return true; entry.kb.update(dt); return false; }}; }
+Presenter.prototype.startKenBurns = function (entry) {
+    if (!entry.kb) return;
+    this.run({update: function (dt) {
+        if (entry.retired) return true;
+        entry.kb.update(dt);
+        return false;
+    }});
+};
+
 function fadeThen(obj, from, to, ms, then) {
     var t = 0;
     obj.alpha = from;
@@ -446,5 +289,5 @@ function fadeThen(obj, from, to, ms, then) {
     }};
 }
 
-Presenter.TIMING = T;
+Presenter.TIMING = Object.assign({}, OPENING_TIMING, T);
 module.exports = Presenter;

@@ -5,7 +5,7 @@
 var path = require('path');
 var layout = require('./layout'), createArt = require('./art'), createLog = require('./log');
 var Model = require('./model'), S = require('./settings'), Presenter = require('./presenter');
-var Catalog = require('./catalog'), Images = require('./images').Images, net = require('./net');
+var Catalog = require('./catalog'), Images = require('./images').Images, Loader = require('./loader'), net = require('./net');
 var sources = require('./sources'), Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
 var C = layout.color, P = layout.pairs, TL = layout.tiles, I = layout.info;
 
@@ -40,14 +40,13 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.closing = null;            // the close in flight (a promise)
             this.openedAt = 0; this.openings = 0;
             // Services, made per opening.
-            this.store = null; this.images = null; this.catalog = null; this.motion = null; this.sounds = null;
+            this.store = null; this.images = null; this.catalog = null; this.loader = null; this.motion = null; this.sounds = null;
             // Stored state: picture ids already shown, and what each source showed last.
             this.seen = []; this.history = {};
             // Loading. A new token cancels everything still running for the previous one.
             this.token = 0;
             this.current = null;            // {item, picture, token} on screen
             this.pending = null;            // a picture that is in before the presenter exists
-            this.onScreen = {};             // picture key -> how many sprites still show it
             this.loadProgress = 0; this.loadingSince = 0;
             this.retryTimer = null; this.watchdog = null;
             // The picture layer and its frame loop.
@@ -86,7 +85,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 if (this.model) { this.model.close(); this.model = null; }
             }
             this.leaving = false; this.closing = null; this.slide = {x: 0, velocity: 0, target: 0};
-            this.dirty = false; this.sourcesKey = null; this.spoken = null; this.current = null; this.pending = null; this.onScreen = {};
+            this.dirty = false; this.sourcesKey = null; this.spoken = null; this.current = null; this.pending = null;
             if (!views || !views.createView || !views.changeView || !global.PIXI) { this.exit({noElementsOfSurprise: true}); return; }
             this.store = deps.store || new S.Store();
             var values = this.store.read();
@@ -104,6 +103,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (values.sounds) this.sounds.prepare();
             this.images = new ImagesClass({PIXI: global.PIXI, net: deps.net || net, log: this.diagnostics});
             this.catalog = new CatalogClass({net: deps.net || net, log: this.diagnostics});
+            this.loader = new Loader({catalog: this.catalog, images: this.images, log: this.diagnostics, since: function () { return self.since(); }});
             this.view = views.createView('View', this.config(views));
             this.view.viewStateStacked = true;
             var onSwipeDown = {callback: function () { self.swipeDown(); }};
@@ -133,40 +133,13 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var order = this.catalog.order(S.enabledSources(values), this.seen, this.history, Math.random, avoid);
             if (!replacing) { this.loadProgress = 0; this.setProgress(0.12); }
             this.diagnostics.info('picture choice:', order.join(' > ') || 'none', '(' + this.since() + ')');
-            this.trySource(order, 0, token);
-        }
-        trySource(order, n, token) {
-            var self = this;
-            if (token !== this.token || !this.model) return;
-            if (n >= order.length) { this.failed('no picture could be loaded', token); return; }
-            var id = order[n], at = Date.now();
-            this.catalog.list(id).then(function (items) {
-                if (token !== self.token || !self.model) return;
-                self.diagnostics.info('source', id, 'listed', items.length, 'in', (Date.now() - at) + ' ms');
-                self.setProgress(0.45);
-                // Its newest picture; the one before it only if the newest can't be loaded.
-                self.tryItem(items.slice(0, 2), 0, token, function () { self.trySource(order, n + 1, token); });
+            this.loader.load(order, {
+                onListed: function () { self.setProgress(0.45); },
+                onLoaded: function () { self.setProgress(0.85); }
+            }).then(function (found) {
+                self.present({item: found.item, picture: found.picture, token: token});
             }, function (error) {
-                if (token !== self.token) return;
-                self.diagnostics.warn('source', id, 'skipped:', error && error.message || error);
-                self.trySource(order, n + 1, token);
-            });
-        }
-        tryItem(items, n, token, otherwise) {
-            var self = this;
-            if (token !== this.token || !this.model) return;
-            if (n >= items.length) { otherwise(); return; }
-            var item = items[n], at = Date.now();
-            this.keepImages([item.key]);
-            Promise.all([this.catalog.resolve(item), this.images.load(item)]).then(function (results) {
-                if (token !== self.token || !self.model) return;
-                self.diagnostics.info('picture', item.key, 'loaded in', (Date.now() - at) + ' ms (' + self.since() + ')');
-                self.setProgress(0.85);
-                self.present({item: item, picture: results[1], token: token});
-            }, function (error) {
-                if (token !== self.token) return;
-                self.diagnostics.warn('picture', item.key, 'failed:', error && error.message || error);
-                self.tryItem(items, n + 1, token, otherwise);
+                self.failed(error && error.message || String(error), token);
             });
         }
         // Hands a loaded picture to the presenter. The presenter only exists once the view has
@@ -183,7 +156,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             var item = next.item, source = sources.get(item.source);
             this.current = {item: item, picture: next.picture, token: next.token};
             this.model.viewing(item, {isNew: this.seen.indexOf(item.key) < 0, sourceLabel: source ? source.label : ''});
-            this.onScreen[item.key] = (this.onScreen[item.key] || 0) + 1;
+            this.images.showing(item.key);
             this.presenter.configure({effects: this.model.values.effects, showCaption: this.model.values.caption});
             this.presenter.show(next.picture.texture, {title: item.title, line: item.line, credit: sources.creditLine(item)});
             this.render();                      // the info overlay may now show the resolved details
@@ -203,6 +176,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.disarmWatchdog();
             if (!this.model) return;
             this.token++;                       // anything still loading is no longer wanted
+            this.loader.cancel();
             this.pending = null;
             this.model.offline();
             clearTimeout(this.retryTimer);
@@ -258,21 +232,9 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.stopSpeaking();
             this.start(this.current && this.current.item.source);
         }
-        // Keep these pictures and every picture still on screen (shown or fading out); release the rest.
-        keepImages(keys) {
-            var self = this, keep = keys.slice();
-            Object.keys(this.onScreen).forEach(function (key) { if (self.onScreen[key] > 0) keep.push(key); });
-            this.images.keep(keep);
-        }
         // The presenter is done with a texture (its sprite has gone).
         retired(texture) {
-            var self = this;
-            Object.keys(this.images.live).forEach(function (key) {
-                var slot = self.images.live[key];
-                if (!slot.picture || slot.picture.texture !== texture) return;
-                self.onScreen[key] = Math.max(0, (self.onScreen[key] || 0) - 1);
-                if (!self.onScreen[key] && (!self.current || self.current.item.key !== key)) self.images.release(key);
-            });
+            if (this.images) this.images.retired(texture, this.current && this.current.item.key);
         }
         // The picture is fully on screen.
         shown() {
@@ -674,6 +636,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         // ---------- closing ----------
         halt() {
             this.token++; this.loop = null; this.pending = null;
+            if (this.loader) this.loader.cancel();
             clearTimeout(this.retryTimer); this.retryTimer = null;
             this.disarmWatchdog();
             if (this.sounds) { this.sounds.close(); this.sounds = null; }
@@ -696,7 +659,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 });
             }
             if (this.art) this.art.destroy();
-            this.decor = null; this.art = null; this.current = null; this.pending = null; this.onScreen = {};
+            this.decor = null; this.art = null; this.current = null; this.pending = null;
         }
         // Closing always ends with this.view cleared and the picture layer gone, also when the SDK
         // can't remove the view (another view process is running, or Be reset the face): a view

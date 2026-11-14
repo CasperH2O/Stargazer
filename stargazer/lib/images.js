@@ -2,6 +2,8 @@
 // Pictures in memory only (D6): the bytes are downloaded into a Buffer, wrapped in a Blob URL,
 // decoded by an <img> and handed to PIXI as a texture. The URL is revoked once the image has
 // decoded, and releasing a picture destroys its texture, so the decoded pixels go too.
+// A picture stays alive while it is on screen: showing(key) counts each sprite that shows it and
+// retired(texture) counts one off again, releasing the picture when nothing shows it any more.
 
 var MAX_BYTES = 3 * 1024 * 1024, MAX_SIDE = 2048, DECODE_TIMEOUT = 15000;
 
@@ -18,7 +20,8 @@ function sniff(bytes) {
 function Images(deps) {
     this.PIXI = deps.PIXI; this.net = deps.net; this.win = deps.window || (typeof window !== 'undefined' ? window : global);
     this.log = deps.log || {info: function () {}, warn: function () {}};
-    this.live = {};    // key -> {promise, picture}
+    this.live = {};       // key -> {promise, picture}
+    this.onScreen = {};   // key -> how many sprites still show it
     this.closed = false;
 }
 // Resolves to {key, texture, width, height}; the same key is loaded once while alive.
@@ -64,13 +67,31 @@ Images.prototype.decode = function (body) {
         image.src = url;
     });
 };
-// Drop every picture except the given keys.
+// Drop every picture except the given keys and those still on screen.
 Images.prototype.keep = function (keys) {
     var self = this;
-    Object.keys(this.live).forEach(function (key) { if (keys.indexOf(key) < 0) self.release(key); });
+    Object.keys(this.live).forEach(function (key) {
+        if (keys.indexOf(key) < 0 && !self.onScreen[key]) self.release(key);
+    });
+};
+// One more sprite shows this picture.
+Images.prototype.showing = function (key) {
+    this.onScreen[key] = (this.onScreen[key] || 0) + 1;
+};
+// A sprite showing this texture has gone. The picture is released once nothing shows it, unless it
+// is `current` (the key of the picture that is meant to be on screen).
+Images.prototype.retired = function (texture, current) {
+    var self = this;
+    Object.keys(this.live).forEach(function (key) {
+        var slot = self.live[key];
+        if (!slot.picture || slot.picture.texture !== texture) return;
+        self.onScreen[key] = Math.max(0, (self.onScreen[key] || 0) - 1);
+        if (!self.onScreen[key] && key !== current) self.release(key);
+    });
 };
 Images.prototype.release = function (key) {
     var slot = this.live[key];
+    delete this.onScreen[key];
     if (!slot) return;
     delete this.live[key];
     if (slot.picture) {

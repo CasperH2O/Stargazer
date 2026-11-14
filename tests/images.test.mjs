@@ -197,3 +197,47 @@ test('images: non-image bytes, broken, oversized or slow pictures are refused an
   assert.equal(s.made.textures.length, 0, 'no texture made');
   assert.equal(s.win.clock.pending(), 0, 'no decode timer left');
 });
+
+// A loaded picture, ready for the on-screen counting tests.
+async function loaded(s, key) {
+  const n = s.net.calls.length, p = s.images.load(item(key));
+  s.net.calls[n].resolve(JPEG);
+  await flush();
+  s.win.images[s.win.images.length - 1].finish(100, 100);
+  return p;
+}
+
+test('images: a picture stays alive while a sprite shows it; the last retire releases it', async () => {
+  const s = setup();
+  const a = await loaded(s, 'a');
+  s.images.showing('a'); s.images.showing('a');            // shown twice (e.g. a cross-fade back to it)
+  s.images.keep([]);
+  assert.deepEqual(Object.keys(s.images.live), ['a'], 'keep() never drops a picture on screen');
+  s.images.retired(a.texture, null);
+  assert.equal(a.texture.destroyed, 0, 'still shown once');
+  s.images.retired(a.texture, null);
+  assert.equal(a.texture.destroyed, 1, 'released once nothing shows it');
+  assert.equal(s.images.count(), 0);
+});
+
+test('images: the current picture is not released when its sprite goes', async () => {
+  const s = setup();
+  const a = await loaded(s, 'a');
+  s.images.showing('a');
+  s.images.retired(a.texture, 'a');
+  assert.equal(a.texture.destroyed, 0);
+  assert.deepEqual(Object.keys(s.images.live), ['a']);
+  s.images.keep(['b']);
+  assert.equal(a.texture.destroyed, 1, 'no longer on screen: keep() may drop it');
+});
+
+test('images: retired() for an unknown or released texture does nothing', async () => {
+  const s = setup();
+  const a = await loaded(s, 'a');
+  s.images.showing('a');
+  s.images.release('a');
+  s.images.retired(a.texture, null);
+  s.images.retired({}, null);
+  assert.equal(s.images.count(), 0);
+  assert.deepEqual(s.images.onScreen, {});
+});

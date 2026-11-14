@@ -79,10 +79,12 @@ No npm or build step runs on the robot. The ZIP holds plain JavaScript and the i
 manifest.json, icon.png, banner.png, README.md   store files
 stargazer/                    the @be/stargazer package (what runs on Jibo)
   lib/screen.js               the SDK view: picture layer, info overlay, menus, gestures
+  lib/loader.js               tries the sources in order until one picture loads
   lib/presenter.js            shows pictures with the effects (lib/effects/*), caption (lib/caption.js)
+  lib/opening.js              the first picture's opening: eyepiece search, focus pull, iris
   lib/model.js                navigation, settings menus, "Show for" and slideshow timers
   lib/catalog.js, sources/    the picture sources; picks one source (fresh first, random) per picture
-  lib/images.js, net.js       downloads into memory and decodes to textures
+  lib/images.js, net.js       downloads into memory, decodes to textures, frees them once off screen
   lib/effects/eyepiece.js     the eyepiece that searches the sky while the picture loads
   lib/sounds.js               Jibo's telescope sounds (played from his animation library)
   lib/motion.js               "Look up" on the body
