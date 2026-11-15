@@ -1,9 +1,10 @@
 'use strict';
 // ESA/Hubble, ESA/Webb and NOIRLab run the same image archive (djangoplicity), so one module
 // covers all three. The newest code comes from the RSS feed or, when the feed is stale or empty
-// (Hubble's stopped at Dec 2025 when it went monthly; Webb's came back empty once), from the
-// listing page. The image is the archive's 1280 px "screen" JPEG. Name, constellation, distance and
-// the credit come from the image page when the picture is about to be shown (resolve).
+// (Webb's came back empty once), from the listing page. Hubble's feed stopped at Dec 2025 when it
+// went monthly, so Hubble has no feed and reads the listing straight away. The image is the
+// archive's 1280 px "screen" JPEG. Name, constellation, distance and the credit come from the
+// image page when the picture is about to be shown (resolve).
 // All three publish under CC BY 4.0, which needs the credit shown with the picture.
 var t = require('./text');
 
@@ -17,7 +18,7 @@ var CODE = /\/images\/((?:potm|potw|iotw)\d{4}[a-z])\/?/;
 function serial(code) { var m = /(\d{4})/.exec(code || ''); return m ? Number(m[1]) : 0; }
 
 function create(spec) {
-    // spec: {id, label, short, feed, listing, page (base URL for /images/<code>/), cdn, telescope}
+    // spec: {id, label, short, feed (or null), listing, page (base URL for /images/<code>/), cdn, telescope}
     function item(code, title, date, description) {
         return {key: spec.id + ':' + code, source: spec.id, code: code, title: title || '', line: '', credit: '', license: 'CC BY 4.0',
             description: description || '', date: date || 0, link: spec.page + code + '/', imageUrl: spec.cdn + '/screen/' + code + '.jpg',
@@ -40,11 +41,12 @@ function create(spec) {
     }
     return {
         id: spec.id, label: spec.label, short: spec.short, fromFeed: fromFeed, fromListing: fromListing,
-        // Newest first, at most `count`; the listing is read only when the feed looks stale.
+        // Newest first, at most `count`; the listing is read only when the feed looks stale or there is none.
         list: function (net, count) {
             count = count || 6;
             var problems = [];
-            return net.text(spec.feed, FIRST).catch(function (e) { problems.push('feed ' + (e && e.message || e)); return ''; }).then(function (xml) {
+            var feedText = spec.feed ? net.text(spec.feed, FIRST).catch(function (e) { problems.push('feed ' + (e && e.message || e)); return ''; }) : Promise.resolve('');
+            return feedText.then(function (xml) {
                 var feed = fromFeed(xml);
                 var newest = feed.length ? Math.max.apply(null, feed.map(function (i) { return i.date; })) : 0;
                 var stale = !feed.length || Date.now() - newest > 45 * 24 * 3600 * 1000;
@@ -89,7 +91,7 @@ function fill(it, html, spec) {
 
 var SOURCES = {
     hubble: create({id: 'hubble', label: 'ESA/Hubble', short: 'ESA/Hubble', telescope: 'Hubble',
-        feed: 'https://esahubble.org/images/potm/feed/', listing: 'https://esahubble.org/images/potm/',
+        feed: null, listing: 'https://esahubble.org/images/potm/',
         page: 'https://esahubble.org/images/', cdn: 'https://cdn.esahubble.org/archives/images'}),
     webb: create({id: 'webb', label: 'ESA/Webb', short: 'ESA/Webb', telescope: 'Webb',
         feed: 'https://esawebb.org/images/potm/feed/', listing: 'https://esawebb.org/images/potm/',

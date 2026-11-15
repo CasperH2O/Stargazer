@@ -27,18 +27,30 @@ function recording(net) {
 test('the feed-then-listing chain fits the catalog budget: feed 8 s, listing 15 s (a hanging feed still leaves the listing time)', async () => {
   const djm = lib('sources/djangoplicity.js');
   assert.ok(djm.FIRST.timeoutMs + djm.FALLBACK.timeoutMs < 25000);
-  const h = recording(fakeNet({ 'https://esahubble.org/images/potm/feed/': new Error('timeout'), 'https://esahubble.org/images/potm/': fixture('hubble-listing.html') }));
-  const list = await dj.hubble.list(h, 6);
+  const w = recording(fakeNet({ 'https://esawebb.org/images/potm/feed/': new Error('timeout'), 'https://esawebb.org/images/potm/': fixture('webb-listing.html') }));
+  const list = await dj.webb.list(w, 6);
   assert.ok(list.length > 0);
-  assert.deepEqual(h.seen, [['https://esahubble.org/images/potm/feed/', 8000], ['https://esahubble.org/images/potm/', 15000]]);
+  assert.deepEqual(w.seen, [['https://esawebb.org/images/potm/feed/', 8000], ['https://esawebb.org/images/potm/', 15000]]);
 });
 
-test('ESA/Hubble: feed is stale, listing has the newer monthly picture', async () => {
-  const net = fakeNet({ 'https://esahubble.org/images/potm/feed/': fixture('hubble-feed.xml'), 'https://esahubble.org/images/potm/': fixture('hubble-listing.html') });
-  const list = await dj.hubble.list(net, 6);
+test('ESA/Hubble: no feed request, straight to the listing (its feed stopped in Dec 2025)', async () => {
+  const h = recording(fakeNet({ 'https://esahubble.org/images/potm/': fixture('hubble-listing.html') }));
+  const list = await dj.hubble.list(h, 6);
+  assert.deepEqual(h.seen, [['https://esahubble.org/images/potm/', 15000]]);
   assert.match(list[0].code, /^potm\d{4}a$/);
   assert.equal(list[0].imageUrl, `https://cdn.esahubble.org/archives/images/screen/${list[0].code}.jpg`);
   assert.ok(list.length <= 6);
+});
+
+test('a stale feed falls back to the listing, which has the newer picture', async () => {
+  const djm = lib('sources/djangoplicity.js');
+  const stale = djm.create({ id: 'hubble', label: 'ESA/Hubble', short: 'ESA/Hubble', telescope: 'Hubble',
+    feed: 'https://esahubble.org/images/potm/feed/', listing: 'https://esahubble.org/images/potm/',
+    page: 'https://esahubble.org/images/', cdn: 'https://cdn.esahubble.org/archives/images' });
+  const net = fakeNet({ 'https://esahubble.org/images/potm/feed/': fixture('hubble-feed.xml'), 'https://esahubble.org/images/potm/': fixture('hubble-listing.html') });
+  const list = await stale.list(net, 6);
+  assert.deepEqual(net.calls, ['https://esahubble.org/images/potm/feed/', 'https://esahubble.org/images/potm/']);
+  assert.match(list[0].code, /^potm\d{4}a$/);
 });
 
 test('djangoplicity page: name, constellation, credit and description', () => {
