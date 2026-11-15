@@ -27,12 +27,16 @@ Motion.prototype.up = function () {
         if (!self.attention && typeof ex.pushAttentionMode === 'function' && ex.AttentionMode) return ex.pushAttentionMode(ex.AttentionMode.OFF);
         return null;
     }).then(function (handle) {
+        // close() can run while the attention mode is being pushed; it found nothing to undo then.
+        if (self.closed) { if (handle && typeof handle.release === 'function') handle.release(); throw Error('closed'); }
         if (handle) self.attention = handle;
         var pose = j.animDB.getAnimByName(POSE);
         if (!pose || typeof pose.play !== 'function') throw Error('pose_missing');
         var playing = pose.play({cache: j.loader && j.loader.activeCache, dofs: BODY});
         return playing && playing.result;
-    }).catch(function (error) { self.log.warn('look up:', error && error.message || error); });
+    }).catch(function (error) {
+        if (!(self.closed && error && error.message === 'closed')) self.log.warn('look up:', error && error.message || error);
+    });
     return this.busy;
 };
 Motion.prototype.centre = function () {
