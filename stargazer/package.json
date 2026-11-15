@@ -1,6 +1,6 @@
 {
   "name": "@be/stargazer",
-  "version": "0.4.8",
+  "version": "0.4.11",
   "description": "An astronomy picture on Jibo's screen, from ESA/Hubble, ESA/Webb and NOIRLab, with its name, where it is and who took it.",
   "license": "MIT",
   "main": "index.js",

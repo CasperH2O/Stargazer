@@ -9,7 +9,7 @@ Stargazer needs BEam 3.1.9 or newer and an internet connection.
 ## Using it
 
 1. Install **Stargazer** from BEacon's **Store → Skills**, or use **⋮ → Upload Skill ZIP** with a release's `Stargazer.zip`. It becomes a button in the main menu.
-2. Open it. A telescope eyepiece appears, rises towards the top of the screen and looks around the sky, with Jibo's own telescope sounds. Its focus dial lights up as the picture loads. When the picture is in, the eyepiece settles at the top, the picture comes into focus inside the lens, and the lens opens up to the whole screen with a slow pan and zoom.
+2. Open it. A telescope eyepiece appears, looking at the horizon with grass along the bottom of the lens. It rises towards the top of the screen over the still landscape, until only sky shows, and looks around the sky, with Jibo's own telescope sounds. Its focus dial lights up as the picture loads. When the picture is in, the eyepiece settles at the top, the picture comes into focus inside the lens, and the lens opens up to the whole screen with a slow pan and zoom.
 3. The caption has three lines:
    - the title;
    - what the picture shows, for example **M 30 · Capricornus · Hubble**;
@@ -85,7 +85,7 @@ stargazer/                    the @be/stargazer package (what runs on Jibo)
   lib/model.js                navigation, settings menus, "Show for" and slideshow timers
   lib/catalog.js, sources/    the picture sources; picks one source (fresh first, random) per picture
   lib/images.js, net.js       downloads into memory, decodes to textures, frees them once off screen
-  lib/effects/eyepiece.js     the eyepiece that searches the sky while the picture loads
+  lib/effects/eyepiece.js     the eyepiece that searches the sky (from the horizon up) while the picture loads
   lib/sounds.js               Jibo's telescope sounds (played from his animation library)
   lib/motion.js               "Look up" on the body
   lib/settings.js             settings.json, seen.json and sources.json (what each source showed last)

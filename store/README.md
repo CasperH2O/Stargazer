@@ -10,7 +10,7 @@ Stargazer needs BEam 3.1.9 or newer and an internet connection.
 
 Once installed, **Stargazer** is a button in Jibo's main menu.
 
-When you open it, a telescope eyepiece rises towards the top of the screen and looks around the sky, with Jibo's own telescope sounds. Its focus dial lights up as the picture loads. Then the picture comes into focus inside the lens, and the lens opens up to the whole screen.
+When you open it, a telescope eyepiece looks at the horizon first, with grass along the bottom of the lens. Then it rises towards the sky and looks around, with Jibo's own telescope sounds. Its focus dial lights up as the picture loads. Then the picture comes into focus inside the lens, and the lens opens up to the whole screen.
 
 The caption has three lines:
 

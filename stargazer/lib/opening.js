@@ -33,10 +33,15 @@ var T = {
     warp: 1300          // Starfield warp
 };
 
+// The horizon, below the screen centre where the eyepiece starts: grass along the bottom of the lens
+// there, and just out of view from anywhere in the sky band.
+var HORIZON = SKY_Y + SEARCH.ay + LENS_R + eyepiece.TIP + 4;
+
 function Opening(presenter) {
     var view = presenter.view;
     this.p = presenter;
-    this.eyepiece = new eyepiece.Eyepiece(presenter.PIXI, presenter.layers.fx, {x: view.w / 2, y: view.h / 2, r: LENS_R, rand: presenter.rand});
+    this.eyepiece = new eyepiece.Eyepiece(presenter.PIXI, presenter.layers.fx,
+        {x: view.w / 2, y: view.h / 2, r: LENS_R, rand: presenter.rand, horizon: HORIZON});
     this.phase = 'lookIn';
     this.progress = 0;      // loading progress shown on the dial, 0..1
     this.ready = null;      // the picture's entry, once it is in
@@ -240,4 +245,4 @@ Opening.prototype.end = function () {
     this.eyepiece.destroy();
 };
 
-module.exports = {Opening: Opening, TIMING: T, LENS_R: LENS_R, SKY_Y: SKY_Y, SEARCH: SEARCH};
+module.exports = {Opening: Opening, TIMING: T, LENS_R: LENS_R, SKY_Y: SKY_Y, SEARCH: SEARCH, HORIZON: HORIZON};

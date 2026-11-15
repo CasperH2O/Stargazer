@@ -1,7 +1,8 @@
-// Pure parts of the effects: Ken Burns plans, iris radius, starfield helpers, eyepiece search path.
+// The effects: Ken Burns plans, iris radius, starfield helpers, eyepiece search path and horizon.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { createPixi } from './pixi-stub.mjs';
 
 const require = createRequire(import.meta.url);
 const util = require('../stargazer/lib/effects/util.js');
@@ -187,4 +188,25 @@ test('eyepiece search path is reproducible for a seed and independent of how it 
     assert.deepEqual(a.segs, b.segs.slice(0, a.segs.length));
     assert.notDeepEqual(sample(c, 30000, 16), fine, 'another seed, another path');
   }
+});
+
+test('eyepiece: grass along the bottom of the lens at first, out of view in the sky band; the scene stays put', async () => {
+  const { SKY_Y, SEARCH, LENS_R, HORIZON } = require('../stargazer/lib/opening.js');
+  const { PIXI } = createPixi(), layer = new PIXI.Container();
+  const e = new eyepiece.Eyepiece(PIXI, layer, { x: 640, y: 360, r: LENS_R, rand: util.rng(3), horizon: HORIZON });
+  // Where the horizon is on screen, and how far below the lens's bottom edge its blade tips are.
+  const horizon = () => [e.c.position.x + e.scene.position.x, e.c.position.y + e.scene.position.y + e.ground.position.y];
+  const belowLens = () => horizon()[1] - eyepiece.TIP - (e.c.position.y + LENS_R);
+  e.setOffset(0, 0);
+  assert.ok(belowLens() < -50, 'grass along the bottom of the lens at the start');
+  for (const [dx, dy] of [[0, SKY_Y], [SEARCH.ax, SKY_Y - SEARCH.ay], [-SEARCH.ax, SKY_Y + SEARCH.ay]]) {
+    e.setOffset(dx, dy);
+    assert.deepEqual(horizon().map((v) => v + 0), [640, 360 + HORIZON], `the scene stays put with the lens at ${dx},${dy}`);
+    assert.ok(belowLens() > 0, `no grass in the lens at ${dx},${dy}`);
+  }
+  e.update(5000);
+  assert.deepEqual(horizon().map((v) => v + 0), [640, 360 + HORIZON], 'the sky does not drift');
+  assert.ok(e.scene.mask === e.lensMask && e.ground.parent === e.scene && e.stars.parent === e.scene, 'stars and grass are both inside the lens');
+  e.destroy();
+  assert.equal(layer.children.length, 0);
 });

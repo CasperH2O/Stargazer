@@ -1,10 +1,13 @@
 'use strict';
 // The telescope eyepiece that searches the sky while the picture loads. Colours come from Jibo's
-// own telescope animation art: slate barrel, cyan glass, white highlight. Plain Graphics only (no
-// filters: the robot's GPU is weak).
+// own telescope animation art: slate barrel, cyan glass, white highlight. What it looks at (stars
+// over a grassy horizon) stays put on the screen while the lens moves over it: it starts with the
+// grass along the bottom of the lens and rises to the sky, where the grass is out of view. The grass has the
+// shape of Jibo's jiboji grass (grass-mound) in night greens from his tree emoji. Plain Graphics
+// only (no filters: the robot's GPU is weak).
 //
-//   var e = new Eyepiece(PIXI, layer, {x, y, r, rand});
-//   e.setOffset(dx, dy)      // where it has wandered to (the stars inside move the other way)
+//   var e = new Eyepiece(PIXI, layer, {x, y, r, rand, horizon});   // horizon: px below the start centre
+//   e.setOffset(dx, dy)      // where it has wandered to (the scene inside stays put)
 //   e.setProgress(0..1)      // the dial's ticks light up as loading goes on
 //   e.setInterior(alpha)     // the black sky inside the lens (fades away for the focus pull)
 //   e.update(dt); e.destroy();
@@ -14,7 +17,36 @@ var PALETTE = {
     cyanLight: 0x22EEFF, cyan: 0x22DDEE, cyanMid: 0x11CCDD, cyanDeep: 0x1188AA,
     slateLight: 0x555566, slate: 0x444455, edge: 0x333344, deep: 0x222233, white: 0xFFFFFF
 };
+// Night grass, from the horizon down: the bottom of the canopy in emojis/hf/tree.png, into the
+// darkest shadow under it.
+var GRASS = [0x2D6A22, 0x194D12, 0x12470A, 0x073F00];
+var TIP = 6.5;          // the tallest blade tip above the horizon
 var TICKS = 60;
+
+function mix(a, b, k) {
+    var r = Math.round(util.lerp(a >> 16, b >> 16, k)), g = Math.round(util.lerp((a >> 8) & 255, (b >> 8) & 255, k)), bl = Math.round(util.lerp(a & 255, b & 255, k));
+    return (r << 16) | (g << 8) | bl;
+}
+// The grass in its own frame: the horizon at y 0, a row of small blade tips above it like
+// grass-mound's, and a gradient down through GRASS. Its own seed, so the search path's random
+// numbers stay as they were.
+function drawGrass(g, r) {
+    var rand = util.rng(20171), W = 800, DEPTH = 2 * r, BAND = 4, FADE = 0.4 * r;
+    g.beginFill(GRASS[0], 1);
+    var pts = [-W, 4], x = -W;
+    while (x < W) {
+        pts.push(x, 0);
+        x += 2 + rand() * 2.5; pts.push(x, -(2 + rand() * (TIP - 2)));
+        x += 2 + rand() * 2.5;
+    }
+    pts.push(W, 0, W, 4);
+    g.drawPolygon(pts); g.endFill();
+    for (var y = 0; y < DEPTH; y += BAND) {
+        var k = util.clamp01(y / FADE) * (GRASS.length - 1), i = Math.min(GRASS.length - 2, Math.floor(k));
+        g.beginFill(mix(GRASS[i], GRASS[i + 1], k - i), 1);
+        g.drawRect(-W, y, 2 * W, BAND + 1); g.endFill();
+    }
+}
 
 function Eyepiece(PIXI, layer, opts) {
     var r = this.r = opts.r || 150, rand = opts.rand || Math.random;
@@ -23,7 +55,6 @@ function Eyepiece(PIXI, layer, opts) {
     this.progress = 0;                      // loading progress, 0..1
     this.shownProgress = 0;                 // the lit ticks catch up with it smoothly
     this.litDrawn = -1;                     // lit tick count last drawn
-    this.t = 0; this.drift = 0;             // time, and how far the sky has turned
     var c = this.c = new PIXI.Container();
     c.position.set(this.x0, this.y0);
 
@@ -35,7 +66,7 @@ function Eyepiece(PIXI, layer, opts) {
     }
     c.addChild(halo);
 
-    // The sky inside the lens: black, with stars that slide past while it searches.
+    // The sky inside the lens: black, and the scene (stars, grass) that the lens moves over.
     var sky = this.sky = new PIXI.Container();
     var black = this.black = new PIXI.Graphics();
     black.beginFill(0x000000, 1); black.drawCircle(0, 0, r + 1); black.endFill();
@@ -45,10 +76,15 @@ function Eyepiece(PIXI, layer, opts) {
         stars.beginFill(rand() < 0.15 ? PALETTE.cyanLight : PALETTE.white, 0.35 + rand() * 0.6);
         stars.drawCircle(sx, sy, big ? 2.6 : 1.1 + rand() * 0.9); stars.endFill();
     }
+    var ground = this.ground = new PIXI.Graphics();
+    drawGrass(ground, r);
+    ground.position.y = opts.horizon || 0;
+    var scene = this.scene = new PIXI.Container();
+    scene.addChild(stars); scene.addChild(ground);
     var lensMask = this.lensMask = new PIXI.Graphics();
     lensMask.beginFill(0xffffff, 1); lensMask.drawCircle(0, 0, r); lensMask.endFill();
-    stars.mask = lensMask;
-    sky.addChild(black); sky.addChild(stars); sky.addChild(lensMask);
+    scene.mask = lensMask;
+    sky.addChild(black); sky.addChild(scene); sky.addChild(lensMask);
     c.addChild(sky);
 
     // The barrel: dark edge, slate ring, inner bevel, and a white highlight like the art's.
@@ -98,15 +134,13 @@ Eyepiece.prototype.setOffset = function (dx, dy) {
     if (util.destroyed(this.c)) return;
     this.dx = dx; this.dy = dy;
     this.c.position.set(this.x0 + dx, this.y0 + dy);
-    this.stars.position.set(-dx * 1.15 + this.drift, -dy * 1.15);   // the sky slides past the other way
+    this.scene.position.set(-dx, -dy);      // the lens moves, the scene stays put
 };
 Eyepiece.prototype.setProgress = function (p) { this.progress = Math.max(this.progress, util.clamp01(p)); };
 Eyepiece.prototype.setInterior = function (alpha) { if (!util.destroyed(this.sky)) this.sky.alpha = alpha; };
 Eyepiece.prototype.setDial = function (rotation) { if (!util.destroyed(this.dial)) this.dial.rotation = rotation; };
 Eyepiece.prototype.update = function (dt) {
     if (util.destroyed(this.c)) return;
-    this.t += dt;
-    this.drift = (this.t / 1000) * 6;                              // the sky turns slowly, too
     // Lit ticks catch up with the progress smoothly.
     this.shownProgress += (this.progress - this.shownProgress) * Math.min(1, dt / 350);
     if (this.progress - this.shownProgress < 0.002) this.shownProgress = this.progress;
@@ -114,7 +148,7 @@ Eyepiece.prototype.update = function (dt) {
     this.setOffset(this.dx, this.dy);
 };
 Eyepiece.prototype.destroy = function () {
-    if (this.stars && !util.destroyed(this.stars)) this.stars.mask = null;
+    if (this.scene && !util.destroyed(this.scene)) this.scene.mask = null;
     util.dispose(this.c, {children: true});
     this.c = null;
 };
@@ -151,4 +185,4 @@ SearchPath.prototype.at = function (t) {
     return {dx: util.lerp(g.from.dx, g.to.dx, k), dy: util.lerp(g.from.dy, g.to.dy, k), move: this.i, moving: t < g.t1};
 };
 
-module.exports = {Eyepiece: Eyepiece, SearchPath: SearchPath, PALETTE: PALETTE, TICKS: TICKS};
+module.exports = {Eyepiece: Eyepiece, SearchPath: SearchPath, PALETTE: PALETTE, GRASS: GRASS, TIP: TIP, TICKS: TICKS};
