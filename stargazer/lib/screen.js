@@ -57,6 +57,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             // Menu paging: the row's offset, an ongoing drag or spring, and the pan gesture.
             this.slide = {x: 0, velocity: 0, target: 0}; this.dragging = null; this.animation = null; this.pan = null;
             this.tapping = false;           // the tap-on-picture action is on
+            // Info overlay: its text broken into lines (infoText), and the description page shown.
+            this.infoCache = null; this.infoPage = 0; this.infoPages = 0;
             // Speech, sounds and settings changes.
             this.spoken = null; this.speaking = false; this.moves = 0;
             this.dirty = false;             // the sources changed in the menus: load anew on the way back
@@ -85,6 +87,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 if (this.model) { this.model.close(); this.model = null; }
             }
             this.leaving = false; this.closing = null; this.slide = {x: 0, velocity: 0, target: 0};
+            this.infoCache = null; this.infoPage = 0; this.infoPages = 0;
             this.dirty = false; this.sourcesKey = null; this.spoken = null; this.current = null; this.pending = null;
             if (!views || !views.createView || !views.changeView || !global.PIXI) { this.exit({noElementsOfSurprise: true}); return; }
             this.store = deps.store || new S.Store();
@@ -271,7 +274,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (this.leaving || !this.model) return;
             if (this.dragging || this.animation) { this.dragging = null; this.settle(0); }
             var top = this.model.top();
-            if (LISTS.indexOf(top) >= 0) this.slide = {x: 0, velocity: 0, target: 0};
+            if (LISTS.indexOf(top) >= 0 || top === 'info') this.slide = {x: 0, velocity: 0, target: 0};
             if (this.model.back() === 'exit') { this.leave(); return; }
             // Back on the picture after the sources changed: load a picture from the new set.
             if (!this.model.covered() && this.dirty) {
@@ -346,9 +349,12 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 var fill = options.fill || C.text;
                 self.ids.push(id); self.labels[id] = null; self.fills[id] = fill;
                 var style = {fontFamily: options.bold ? layout.font.title : layout.font.body, fontSize: size, fill: fill,
-                    align: 'center', fontWeight: options.bold ? 'bold' : 'normal'};
-                if (options.lines) { style.wordWrap = true; style.wordWrapWidth = width; style.lineHeight = options.line; }
-                components.push({type: 'Label', id: id, text: ' ', position: {x: x, y: y}, targetAnchor: {x: 0.5, y: options.lines ? 0 : 0.5},
+                    align: options.left ? 'left' : 'center', fontWeight: options.bold ? 'bold' : 'normal'};
+                if (options.lines) style.lineHeight = options.line;
+                // `lines` alone: the Label wraps. `broken`: the lines are broken here (block()), `middle`: centred on y.
+                if (options.lines && !options.broken) { style.wordWrap = true; style.wordWrapWidth = width; }
+                components.push({type: 'Label', id: id, text: ' ', position: {x: x, y: y},
+                    targetAnchor: {x: options.left ? 0 : 0.5, y: options.lines && !options.middle ? 0 : 0.5},
                     bounds: {width: width, height: options.lines ? options.lines * options.line + size * 0.6 : size * 1.6}, style: style});
             }
             function tile(id, icon, x, fn) {
@@ -386,12 +392,12 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 });
             });
             // Info overlay.
-            label('info-title', 640, I.title.y, I.title.size, layout.title.width, {bold: true});
-            label('info-meta', 640, I.meta.y, I.meta.size, layout.title.width, {fill: C.muted});
-            label('info-body', 640, I.body.y, I.body.size, I.body.width, {lines: I.body.lines, line: I.body.line});
-            label('info-credit', 640, I.credit.y, I.credit.size, layout.title.width, {fill: C.muted});
-            action('btn-settings', 'gear', P.grey, I.buttons.x, I.buttons.y, I.buttons.size, function () { self.press('settings'); });
-            label('cap-settings', I.buttons.x, I.caption.y, I.caption.size, 300);
+            label('info-title', I.title.x, I.title.y, I.title.size, I.title.width, {bold: true, lines: I.title.lines, line: I.title.line, broken: true, middle: true});
+            label('info-meta', 640, I.meta.y, I.meta.size, I.meta.width, {fill: C.muted});
+            label('info-body', I.body.x, I.body.y, I.body.size, I.body.width, {lines: I.body.lines, line: I.body.line, broken: true, left: true});
+            label('info-more', I.more.x, I.more.y, I.more.size, I.more.width, {lines: I.more.lines, line: I.more.line, broken: true, left: true});
+            label('info-credit', 640, I.credit.y, I.credit.size, I.credit.width, {fill: C.muted, lines: I.credit.lines, line: I.credit.line, broken: true});
+            action('btn-settings', 'gear', P.grey, I.gear.x, I.gear.y, I.gear.size, function () { self.press('settings'); });
             // Offline.
             label('body', 640, layout.dialog.large.y - 40, layout.dialog.large.size - 5, layout.dialog.large.width, {lines: 2, line: layout.dialog.large.line});
             action('btn-retry', 'refresh', P.confirm, 640, layout.dialog.single, layout.dialog.button, function () { self.press('retry'); });
@@ -425,14 +431,35 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (c) { c.text = this.fit(c, value, min); this.labels[id] = key; }
         }
         fit(component, value, min) {
-            var PIXI = global.PIXI, style = component.style, bounds = component.bounds;
-            if (!PIXI || !PIXI.TextMetrics || !style || !bounds || !bounds.width || style.wordWrap) return value;
+            var style = component.style, bounds = component.bounds, measure = this.measurer(component);
+            if (!measure || !bounds || !bounds.width || style.wordWrap) return value;
             var base = component._originalFontSize || style.fontSize;
-            return layout.fit(value, bounds.width, base, Math.min(base, min || base), function (candidate, size) {
-                var copy = typeof style.clone === 'function' ? style.clone() : Object.assign({}, style);
-                copy.fontSize = size;
+            return layout.fit(value, bounds.width, base, Math.min(base, min || base), measure).text;
+        }
+        // The rendered width of a text at a font size, in the component's style (null before PIXI or the style is there).
+        measurer(component) {
+            var PIXI = global.PIXI, style = component && component.style, copies = {};
+            if (!PIXI || !PIXI.TextMetrics || !style) return null;
+            return function (candidate, size) {
+                var copy = copies[size];
+                if (!copy) {
+                    copy = copies[size] = typeof style.clone === 'function' ? style.clone() : Object.assign({}, style);
+                    copy.fontSize = size;
+                }
                 return PIXI.TextMetrics.measureText(candidate, copy).width;
-            }).text;
+            };
+        }
+        // Lines broken by layout.wrapFit, shown as they are at the font size they were fitted for.
+        block(id, lines, size) {
+            var value = lines.join('\n') || ' ', key = value + '|' + size;
+            if (this.labels[id] === key) return;
+            var c = this.component(id);
+            if (!c) return;
+            if (c.style && c.style.fontSize !== size) {
+                c._originalFontSize = size; c.style.fontSize = size;
+                if (c.textDisplay && c.textDisplay.style && c.textDisplay.style !== c.style) c.textDisplay.style.fontSize = size;
+            }
+            c.text = value; this.labels[id] = key;
         }
 
         // ---------- drawing ----------
@@ -453,8 +480,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 self.text(id + '-label', item.label, TL.label.min); self.text(id + '-caption', item.caption, 30);
             });
             if (vm.tiles && vm.tiles.kind === 'list') this.renderList(vm.tiles, on);
-            this.panning(!!(vm.tiles && vm.tiles.kind === 'list' && vm.tiles.items.length > TL.perPage));
-            if (vm.screen === 'info' && vm.picture) this.renderInfo(vm.picture, on);
+            var bar = vm.tiles && vm.tiles.pager || null;
+            if (vm.screen === 'info' && vm.picture) bar = this.renderInfo(vm.picture, on);
+            else { this.infoPage = 0; this.infoPages = 0; }
+            this.panning(!!(vm.tiles && vm.tiles.kind === 'list' && vm.tiles.items.length > TL.perPage || this.infoPages > 1));
             if (vm.body) { this.text('body', vm.body); on('body'); }
             if (vm.button) { on('btn-' + vm.button.kind); this.text('cap-' + vm.button.kind, vm.button.caption); on('cap-' + vm.button.kind); }
             this.ids.forEach(function (id) { self.show(id, !!want[id]); });
@@ -464,7 +493,6 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             if (this.decor) {
                 this.decor.root.visible = !menu && vm.screen !== 'offline';
                 this.decor.scrim.visible = vm.screen === 'info';
-                var bar = vm.tiles && vm.tiles.pager;
                 this.decor.track.visible = this.decor.thumb.visible = !!bar;
                 if (bar) {
                     this.decor.thumb.texture = this.art.pill(bar.thumb.width, bar.thumb.height, C.thumb);
@@ -489,15 +517,39 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 }
             });
         }
+        // The info overlay: the title, then page `infoPage` of the description (page 1 under the meta
+        // line and above the credit). Returns the pager bar for the pages (null for one page).
         renderInfo(p, on) {
-            var item = p.item;
-            this.text('info-title', item.title, 44); on('info-title');
-            this.text('info-meta', (p.isNew ? 'New · ' : '') + [p.source, day(item.date)].filter(Boolean).join(' · '), 30); on('info-meta');
-            this.fill('info-meta', p.isNew ? C.accent : C.muted);
-            if (item.description) { this.text('info-body', sources.short(item.description)); on('info-body'); }
-            var credit = sources.creditLine(item);
-            if (credit) { this.text('info-credit', credit, 30); on('info-credit'); }
-            on('btn-settings'); this.text('cap-settings', 'Settings'); on('cap-settings');
+            var item = p.item, t = this.infoText(item);
+            on('btn-settings');
+            if (!t) return null;                // the labels are not built yet: the frame loop draws again
+            this.infoPages = t.pages.length;
+            this.infoPage = Math.min(this.infoPage, this.infoPages - 1);
+            this.block('info-title', t.title.lines, t.title.size); on('info-title');
+            if (this.infoPage === 0) {
+                this.text('info-meta', (p.isNew ? 'New · ' : '') + [p.source, day(item.date)].filter(Boolean).join(' · '), I.meta.min); on('info-meta');
+                this.fill('info-meta', p.isNew ? C.accent : C.muted);
+                if (t.pages[0].length) { this.block('info-body', t.pages[0], I.body.size); on('info-body'); }
+                if (t.credit.lines.length) { this.block('info-credit', t.credit.lines, t.credit.size); on('info-credit'); }
+            } else { this.block('info-more', t.pages[this.infoPage], I.more.size); on('info-more'); }
+            return layout.pagerAt(this.infoPage, this.infoPages);
+        }
+        // The overlay's text broken into lines that fit its labels (once per picture), or null while
+        // the labels are not there. {title: {lines, size}, pages: [[line]], credit: {lines, size}}
+        infoText(item) {
+            var key = [item.key, item.title, item.description, item.credit, item.license].join('|');
+            if (this.infoCache && this.infoCache.key === key) return this.infoCache;
+            var title = this.measurer(this.component('info-title')), body = this.measurer(this.component('info-body')),
+                credit = this.measurer(this.component('info-credit'));
+            if (!title || !body || !credit) return null;
+            var lines = layout.wrap(item.description, I.body.width, I.body.size, body);
+            this.infoPage = 0;
+            return this.infoCache = {
+                key: key,
+                title: layout.wrapFit(item.title, I.title.width, I.title.size, I.title.min, I.title.lines, title),
+                pages: layout.paginate(lines, I.body.lines, I.more.lines),
+                credit: layout.wrapFit(sources.creditLine(item), I.credit.width, I.credit.size, I.credit.size, I.credit.lines, credit)
+            };
         }
         // A tap anywhere on the picture opens the info overlay. A view-wide tap action would
         // swallow the buttons' taps, so it exists only while the bare picture shows.
@@ -576,8 +628,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         onPan(event) {
             if (!this.active() || !this.model) { if (this.dragging) { this.dragging = null; this.settle(0); } return; }
             var total = typeof event.deltaX === 'number' && isFinite(event.deltaX) ? event.deltaX : null;
-            var t = this.vm && this.vm.tiles;
-            if (!t || t.kind !== 'list') return;
+            var t = this.paging();
+            if (!t) return;
             if (!this.dragging) {
                 if (event.isFinal) return;
                 this.animation = null; this.dragging = {base: this.slide.x, total: 0};
@@ -592,13 +644,30 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             }
             this.place(this.dragging.base + layout.drag(this.dragging.total, t.canBack, t.canForward));
         }
+        // What a horizontal pan pages through now: a menu list, the info overlay's description, or nothing.
+        paging() {
+            var vm = this.vm, t = vm && vm.tiles;
+            if (t && t.kind === 'list') return {canBack: t.canBack, canForward: t.canForward};
+            if (vm && vm.screen === 'info' && this.infoPages > 1) return {info: true, canBack: this.infoPage > 0, canForward: this.infoPage < this.infoPages - 1};
+            return null;
+        }
         turn(direction) {
-            var t = this.vm && this.vm.tiles;
+            var t = this.vm && this.vm.tiles, paging = this.paging();
+            if (paging && paging.info) { this.turnInfo(direction); return; }
             if (!t || t.kind !== 'list' || !this.model) return;
             var count = t.items.length, start = layout.pageStart(layout.pageOf(t.start, count) + direction, count);
             if (start === t.start) { this.settle(0); return; }
             this.slide.x += (start - t.start) * TL.step;
             this.model.setStart(t.list, start);
+            this.settle(0);
+        }
+        // Another page of the description: it slides in from the side and fades in (placeInfo).
+        turnInfo(direction) {
+            var page = this.infoPage + direction;
+            if (page < 0 || page >= this.infoPages) { this.settle(0); return; }
+            this.infoPage = page;
+            this.slide.x = direction * I.enter;
+            this.render();
             this.settle(0);
         }
         settle(target) {
@@ -621,6 +690,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         place(x) {
             this.slide.x = x;
             var t = this.vm && this.vm.tiles, self = this;
+            if (this.vm && this.vm.screen === 'info') { this.placeInfo(x); return; }
             if (!this.view || !this.rest || !t || t.kind !== 'list') return;
             var offset = Math.round(x) - t.start * TL.step;
             this.rows[t.list].forEach(function (r) {
@@ -630,6 +700,19 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                     if (self.rest[id] == null) self.rest[id] = c.display.x;
                     c.display.x = self.rest[id] + offset;
                 });
+            });
+        }
+
+        // The description's text follows the finger or slides in, fading with the distance.
+        placeInfo(x) {
+            var self = this;
+            if (!this.view || !this.rest) return;
+            ['info-body', 'info-more'].forEach(function (id) {
+                var c = self.component(id);
+                if (!c || !c.display) return;
+                if (self.rest[id] == null) self.rest[id] = c.display.x;
+                c.display.x = self.rest[id] + Math.round(x);
+                c.display.alpha = Math.max(0, 1 - Math.abs(x) / I.fade);
             });
         }
 

@@ -15,7 +15,8 @@ class Node { constructor() { this.children = []; this.parent = null; this.positi
   removeChild(c) { this.children = this.children.filter((x) => x !== c); c.parent = null; } destroy() { this._destroyed = true; } }
 class Graphics extends Node { beginFill() {} drawRect() {} endFill() {} }
 class Sprite extends Node { constructor(texture) { super(); this.texture = texture; } }
-global.PIXI = { Container: Node, Graphics, Sprite, Texture: { EMPTY: {} } };
+global.PIXI = { Container: Node, Graphics, Sprite, Texture: { EMPTY: {} },
+  TextMetrics: { measureText: (text, style) => ({ width: text.length * style.fontSize * 0.5 }) } };   // 18 px per character at 36 px
 
 function fakeSdk() {
   const calls = [];
@@ -25,7 +26,7 @@ function fakeSdk() {
     STATE: { DESTROYED: 'destroyed' }, _viewProcess: { active: false, processQueue: [] }, ComponentGroup: { prototype: { destroy() {} } },
     createView() {
       views.created++;
-      return { state: 'created', stage: null, viewStateStacked: false, addAction() {}, clearActions() {}, getComponentById() { return null; } };
+      return { state: 'created', stage: null, viewStateStacked: false, addAction() {}, clearActions() {}, getComponentById(id) { return views.components ? views.components(id) : null; } };
     },
     changeView(options, onComplete, onFailure, onLoaded) { calls.push({ options, onComplete, onFailure, onLoaded }); }
   };
@@ -198,4 +199,75 @@ test('the presenter\'s cues play the tripod sounds while "Telescope sounds" is o
     assert.doesNotThrow(() => cue('look'));
     assert.deepEqual(made[0].plays, [], 'nothing after close');
   }
+});
+
+// SDK Labels and buttons as plain objects, made on first use; `views._touchManager` records the pan gesture.
+function withComponents(views) {
+  const made = {}, gestures = [];
+  views.components = (id) => made[id] || (made[id] = { id, style: { fontSize: 36 }, bounds: { width: 980, height: 400 }, display: { x: 150, y: 0, visible: true, alpha: 1 }, text: ' ' });
+  views._touchManager = { addGesture: (g, fn) => gestures.push(g), removeGesture: (g) => gestures.splice(gestures.indexOf(g), 1) };
+  return { made, gestures };
+}
+const WORDS = 'Thick clouds of cold hydrogen gas dominate the scene forming a complex network of ridges cavities and glowing filaments'.split(' ');
+function longText(count) { const out = []; for (let i = 0; i < count; i++) out.push(WORDS[i % WORDS.length]); return out.join(' ') + '.'; }
+
+test('info overlay: the full description in pages that fit, a horizontal pan turns them, swipe down closes', async () => {
+  const item = { key: 'a1', source: 'a', title: 'A very long title that cannot possibly fit on a single line of the screen, ' + longText(30), description: longText(190), credit: 'ESA/Hubble & NASA, J. Doe', license: 'CC BY 4.0' };
+  const { jibo, views, skill } = harness({ lists: { a: [item] } });
+  const { made, gestures } = withComponents(views);
+  skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
+  skill.tapPicture();
+  const lines = (id) => made[id].text.split('\n');
+  assert.ok(skill.infoPages >= 3, 'a long text takes several pages: ' + skill.infoPages);
+  assert.ok(lines('info-body').length <= 5 && lines('info-body').length >= 4, 'page 1 has 5 lines');
+  for (const l of lines('info-body')) assert.ok(l.length * 18 <= 980, 'line fits: ' + l);
+  assert.ok(made['info-title'].text.split('\n').length <= 2 && made['info-title'].text.endsWith('…'), 'a title that cannot fit ends in an ellipsis on line 2');
+  assert.ok(made['info-title'].style.fontSize === 44 && made['info-title']._originalFontSize === 44, 'shrunk to the minimum');
+  assert.equal(made['info-credit'].text, '© ESA/Hubble & NASA, J. Doe · CC BY 4.0');
+  assert.equal(made['btn-settings'].display.visible, true);
+  assert.ok(!skill.ids.includes('cap-settings'), 'no caption under the gear');
+  assert.equal(made['info-body'].display.visible, true);
+  assert.equal(made['info-more'].display.visible, false);
+  assert.equal(skill.decor.thumb.visible, true, 'pager bar');
+  assert.deepEqual(gestures, ['pan'], 'the pan gesture is on while there are pages');
+
+  skill.onPan({ deltaX: 200, isFinal: false }); skill.onPan({ deltaX: 200, isFinal: true });
+  assert.equal(skill.infoPage, 0, 'no page before the first');
+  skill.onPan({ deltaX: -80, isFinal: false }); assert.ok(made['info-body'].display.alpha < 1, 'fades while dragged');
+  skill.onPan({ deltaX: -80, isFinal: true });
+  assert.equal(skill.infoPage, 0, 'a short drag turns nothing');
+  skill.onPan({ deltaX: -200, isFinal: false }); skill.onPan({ deltaX: -200, isFinal: true });
+  assert.equal(skill.infoPage, 1);
+  assert.equal(made['info-body'].display.visible, false);
+  assert.equal(made['info-more'].display.visible, true);
+  assert.equal(made['info-credit'].display.visible, false, 'later pages are text only');
+  assert.ok(lines('info-more').length <= 8);
+  for (const l of lines('info-more')) assert.ok(l.length * 18 <= 980);
+  await wait(900);
+  assert.equal(skill.slide.x, 0, 'the new page slid to rest');
+  assert.equal(made['info-more'].display.alpha, 1);
+  assert.equal(made['info-more'].display.x, 150);
+
+  skill.swipeDown();
+  assert.equal(skill.model.top(), 'viewer');
+  assert.equal(skill.infoPage, 0);
+  assert.deepEqual(gestures, [], 'the pan gesture is off again');
+  const closing = close(skill); await settle(); views.calls[1].onComplete(); await closing;
+});
+
+test('info overlay: a short description is one page, no pan, the title stays at full size', async () => {
+  const item = { key: 'a1', source: 'a', title: 'Cat\'s Eye', description: 'A planetary nebula.', credit: 'NASA' };
+  const { jibo, views, skill } = harness({ lists: { a: [item] } });
+  const { made, gestures } = withComponents(views);
+  skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
+  skill.tapPicture();
+  assert.equal(skill.infoPages, 1);
+  assert.equal(made['info-body'].text, 'A planetary nebula.');
+  assert.equal(made['info-title'].text, 'Cat\'s Eye');
+  assert.equal(made['info-title'].style.fontSize, 54);
+  assert.equal(skill.decor.thumb.visible, false);
+  assert.deepEqual(gestures, []);
+  skill.press('settings');
+  assert.equal(skill.model.top(), 'settings');
+  const closing = close(skill); await settle(); views.calls[1].onComplete(); await closing;
 });

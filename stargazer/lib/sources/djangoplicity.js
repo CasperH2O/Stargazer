@@ -17,6 +17,13 @@ var CODE = /\/images\/((?:potm|potw|iotw)\d{4}[a-z])\/?/;
 // yymm or yyww as a sortable number: potm2610a -> 2610, potw2645a -> 2645.
 function serial(code) { var m = /(\d{4})/.exec(code || ''); return m ? Number(m[1]) : 0; }
 
+// The description the info overlay pages through: whole sentences up to DESCRIPTION_MAX characters,
+// without the feed's trailing "[ Image description: …]" (alt text) and "Links …" lines.
+var DESCRIPTION_MAX = 900;
+function describe(value) {
+    return t.upTo(String(value || '').replace(/\s*\[\s*Image description[\s\S]*$/i, '').replace(/\s+Links\b[\s\S]*$/, ''), DESCRIPTION_MAX);
+}
+
 function create(spec) {
     // spec: {id, label, short, feed (or null), listing, page (base URL for /images/<code>/), cdn, telescope}
     function item(code, title, date, description) {
@@ -31,7 +38,7 @@ function create(spec) {
             var description = t.plain(t.tag(it, 'description')).replace(/^(potm|potw|iotw)\d+[a-z]?\s*-\s*/, '');
             var title = t.plain(t.tag(it, 'title'));
             // Some feeds (Webb) carry only "potm2610 - <title>": no description then.
-            return item(m[1], title, t.date(t.plain(t.tag(it, 'pubDate'))), description === title ? '' : t.sentences(description, 2, 260));
+            return item(m[1], title, t.date(t.plain(t.tag(it, 'pubDate'))), description === title ? '' : describe(description));
         }).filter(Boolean);
     }
     function fromListing(html) {
@@ -74,7 +81,7 @@ function fill(it, html, spec) {
     if (!it.description) {
         // The text starts with the first paragraph after the title.
         var h1 = html.indexOf('</h1>'), desc = h1 >= 0 ? /<p>([\s\S]*?)<\/p>/.exec(html.slice(h1)) : null;
-        it.description = desc ? t.sentences(t.plain(desc[1]), 2, 260) : '';
+        it.description = desc ? describe(t.plain(desc[1])) : '';
     }
     var name = t.row(html, 'Name').split(', ')[0], constellation = t.row(html, 'Constellation');
     // A name that only repeats the constellation or is a category ("Arizona", "La Silla") still helps place it.

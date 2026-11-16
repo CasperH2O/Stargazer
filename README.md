@@ -20,7 +20,7 @@ Stargazer needs BEam 3.1.9 or newer and an internet connection.
 Each time, Stargazer picks **one** source at random and shows its newest picture. It prefers a source that it knows has something new without downloading anything. Either that source's list is still in memory with an unseen newest picture, or the source's publishing rhythm (weekly or monthly) has passed since the last picture it showed. Only the chosen source is contacted. If it fails, Stargazer tries another one.
 
 On the picture:
-- **Tap:** shows the info overlay with a short description, the source and date, and the credit, plus a **Settings** button.
+- **Tap:** shows the info overlay: the title, the source and date, the description (up to about 900 characters, in pages that fit the screen) and the credit. Swipe sideways to turn a page. The small gear in the top right corner opens **Settings**.
 - **Swipe down:** goes back one level. On the picture it closes Stargazer.
 
 ## Settings

@@ -20,14 +20,14 @@ The caption has three lines:
 
 After 10 seconds, Jibo's eye comes back. Touching the picture restarts that time.
 
-- **Tap the picture:** shows a short description, the source and date, the credit, and a **Settings** button.
+- **Tap the picture:** shows the title, the source and date, the description and the credit. A long description comes in pages: swipe sideways to turn them. The gear in the top right corner opens **Settings**.
 - **Swipe down:** goes back one level. On the picture, it closes Stargazer.
 
 Each time, Stargazer picks one source at random and shows its newest picture. It prefers a source that has something you haven't seen yet, and only contacts that one source.
 
 ## Settings
 
-Tap the picture, then **Settings**.
+Tap the picture, then the gear in the corner.
 
 ### Sources
 

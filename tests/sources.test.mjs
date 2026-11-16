@@ -13,6 +13,10 @@ test('text helpers decode entities, strip HTML and cut sentences', () => {
   assert.equal(t.sentences('U.S. Air Force jets made a heart. It was seen. Third.', 1, 300), 'U.S. Air Force jets made a heart.');
   assert.equal(t.sentences('Shot by M. Libralato. Next.', 1, 300), 'Shot by M. Libralato.');
   assert.ok(t.sentences('x'.repeat(400) + '.', 2, 260).length <= 260);
+  assert.equal(t.upTo('One. Two. Three.', 8), 'One.');
+  assert.equal(t.upTo('One. Two. Three.', 12), 'One. Two.');
+  assert.equal(t.upTo('One. Two. Three.', 100), 'One. Two. Three.');
+  assert.ok(t.upTo('x'.repeat(400) + '. Two.', 100).length <= 100);
   assert.equal(t.row('<tr><th class="title">Name:</th><td><a>M 30</a></td></tr>', 'Name'), 'M 30');
   assert.ok(t.date('14 Nov. 2025') > 0);
 });
@@ -63,6 +67,14 @@ test('djangoplicity page: name, constellation, credit and description', () => {
   const w = dj.webb.fill({ title: 'x', description: '' }, fixture('webb-page.html'));
   assert.equal(w.line, 'Dorado · Webb');
   assert.doesNotMatch(w.credit, /Acknowledgement/);
+});
+
+test('feed descriptions: whole sentences up to 900 characters, no image description or links tail', () => {
+  const list = dj.hubble.fromFeed(fixture('hubble-feed.xml'));
+  assert.ok(list[0].description.length > 600 && list[0].description.length <= 900);
+  assert.match(list[0].description, /^Today’s ESA\/Hubble Picture of the Week/);
+  assert.match(list[0].description, /[.!?]$/, 'ends on a whole sentence');
+  for (const it of list) assert.doesNotMatch(it.description, /Image description|Links/);
 });
 
 test('NOIRLab: feed item filled from its page, CC BY 4.0 credit line', () => {

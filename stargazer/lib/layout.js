@@ -36,14 +36,20 @@ var pager = {x: 45, y: 670, width: 1190, height: 10};
 // 480 reaches below the 600 px safe line), its caption under it, and a two-line message.
 var dialog = {button: 264, y: 460, single: 468, caption: 640, captionSize: 45,
     large: {y: 206, size: 50, line: 62, width: 1060}};
-// Info overlay: title, meta line, description (3 lines), credit, one 150 px Settings button.
+// Info overlay: a small gear button in the top right corner (inside the safe area), the title (up
+// to 2 lines, shrinking from `size` to `min`), a meta line, and the description in pages that
+// are word-wrapped to fit: page 1 under the meta line (5 lines, then the credit), later pages
+// higher up (8 lines, no meta or credit). A horizontal pan turns the page, like a menu list.
 var info = {
-    title: {y: 82, size: 60},
-    meta: {y: 146, size: 36},
-    body: {y: 190, size: 36, line: 47, width: 980, lines: 3},
-    credit: {y: 352, size: 30},
-    buttons: {y: 480, size: 150, x: 640},
-    caption: {y: 582, size: 36}
+    gear: {x: 1108, y: 74, size: 104},
+    title: {x: 640, y: 82, size: 54, min: 44, line: 60, lines: 2, width: 780},
+    meta: {y: 180, size: 36, min: 30, width: 980},
+    body: {x: 150, y: 214, size: 36, line: 47, width: 980, lines: 5},
+    more: {x: 150, y: 170, size: 36, line: 47, width: 980, lines: 8},
+    credit: {y: 475, size: 30, line: 38, width: 980, lines: 2},
+    // A new page slides in from `enter` px aside and fades in; a page being dragged fades out
+    // over `fade` px.
+    enter: 300, fade: 360
 };
 
 // Paging with the stock back-fill: the last page is always full (it repeats earlier items).
@@ -57,10 +63,11 @@ function pageOf(start, count) {
 }
 // Clamp a start index to a real page start after the list changed.
 function clampStart(start, count) { return pageStart(pageOf(Math.max(0, start), count), count); }
-function pagerBar(start, count) {
-    var pageCount = pages(count);
+function pagerBar(start, count) { return pagerAt(pageOf(start, count), pages(count)); }
+// The pager bar with the thumb on page `page` of `pageCount` (null for a single page).
+function pagerAt(page, pageCount) {
     if (pageCount < 2) return null;
-    var page = pageOf(start, count), thumb = Math.round(pager.width / pageCount);
+    var thumb = Math.round(pager.width / pageCount);
     return {
         track: {x: pager.x, y: pager.y, width: pager.width, height: pager.height},
         thumb: {x: pager.x + Math.round((pager.width - thumb) * page / (pageCount - 1)), y: pager.y, width: thumb, height: pager.height}
@@ -104,9 +111,49 @@ function fit(value, width, size, min, measure) {
     return {text: low ? characters.slice(0, low).join('').trim() + '…' : '…', size: min};
 }
 
+// Greedy word wrap into lines no wider than `width` at `size`. A word wider than a whole line is
+// cut by characters.
+function wrap(value, width, size, measure) {
+    var words = String(value || '').split(/\s+/).filter(Boolean), lines = [], line = '';
+    words.forEach(function (word) {
+        var next = line ? line + ' ' + word : word;
+        if (measure(next, size) <= width) { line = next; return; }
+        if (line) { lines.push(line); line = ''; }
+        var characters = Array.from(word);
+        while (characters.length > 1 && measure(characters.join(''), size) > width) {
+            var n = characters.length - 1;
+            while (n > 1 && measure(characters.slice(0, n).join(''), size) > width) --n;
+            lines.push(characters.slice(0, n).join(''));
+            characters = characters.slice(n);
+        }
+        line = characters.join('');
+    });
+    if (line) lines.push(line);
+    return lines;
+}
+// Wrapped text in at most `maxLines` lines: the biggest size from `size` down to `min` where it
+// fits, else the lines at `min` with the last one ending in an ellipsis. Returns {lines, size}.
+function wrapFit(value, width, size, min, maxLines, measure) {
+    var lines;
+    for (var s = size; s >= min; --s) {
+        lines = wrap(value, width, s, measure);
+        if (lines.length <= maxLines) return {lines: lines, size: s};
+    }
+    lines = wrap(value, width, min, measure).slice(0, maxLines);
+    var last = lines[maxLines - 1].replace(/[\s.,;:]+$/, '');
+    lines[maxLines - 1] = fit(last + '…', width, min, min, measure).text;
+    return {lines: lines, size: min};
+}
+// Lines split into pages: `first` lines on page 1, `rest` on each later page (always one page).
+function paginate(lines, first, rest) {
+    var pages = [lines.slice(0, first)], at = first;
+    while (at < lines.length) { pages.push(lines.slice(at, at + rest)); at += rest; }
+    return pages;
+}
+
 module.exports = {
     color: color, pairs: pairs, font: font, title: title, status: status, tiles: tiles, pager: pager,
     dialog: dialog, info: info,
-    pages: pages, pageStart: pageStart, pageOf: pageOf, clampStart: clampStart, pagerBar: pagerBar, slotX: slotX,
-    drag: drag, release: release, spring: spring, fit: fit
+    pages: pages, pageStart: pageStart, pageOf: pageOf, clampStart: clampStart, pagerBar: pagerBar, pagerAt: pagerAt, slotX: slotX,
+    drag: drag, release: release, spring: spring, fit: fit, wrap: wrap, wrapFit: wrapFit, paginate: paginate
 };
