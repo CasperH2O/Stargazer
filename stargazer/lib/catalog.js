@@ -67,7 +67,7 @@ Catalog.prototype.list = function (id) {
     if (items) return items.length ? Promise.resolve(items) : Promise.reject(Error('empty'));
     var fetched = Promise.resolve().then(function () { return source.list(self.net, PER_SOURCE); });
     return withTimeout(fetched, LIST_TIMEOUT, self.timers).then(function (list) {
-        list = (list || []).slice();        // every source lists newest first (listing items may have no date)
+        list = (list || []).slice(0, PER_SOURCE);   // newest first (listing items may have no date); never more kept than asked for
         self.memory[id] = {at: now, items: list};
         if (!list.length) throw Error('empty');
         return list;

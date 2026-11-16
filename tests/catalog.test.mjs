@@ -74,3 +74,11 @@ test('net: follows redirects, caps the size, keeps bytes in memory', async () =>
   await assert.rejects(net.get('https://c.test/big', {}, tr), /too_large/);
   await assert.rejects(net.get('ftp://x/y', {}, tr), /bad_url/);
 });
+
+test('a source that returns a long list keeps only the few pictures asked for in memory', async () => {
+  Catalog.forget();
+  const many = Array.from({ length: 500 }, (_, i) => ({ key: 'hubble:p' + i, source: 'hubble' }));
+  const catalog = new Catalog({ net: {}, sources: { hubble: { list: () => Promise.resolve(many) } }, memory: {} });
+  const items = await catalog.list('hubble');
+  assert.ok(items.length <= 3 && items[0].key === 'hubble:p0');
+});
