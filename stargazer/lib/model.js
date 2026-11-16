@@ -30,6 +30,7 @@ var MORE = [
     {id: 'showFor', label: 'Show for', icon: 'timer'},
     {id: 'slideshow', label: 'Slideshow', icon: 'slideshow'},
     {id: 'readTitle', label: 'Read title aloud', icon: 'speak'},
+    {id: 'readDescription', label: 'Read description aloud', icon: 'speak'},
     {id: 'caption', label: 'Show caption', icon: 'caption'},
     {id: 'sounds', label: 'Telescope sounds', icon: 'sound'}
 ];
@@ -149,7 +150,7 @@ class Model {
         else if (list === 'more') {
             if (id === 'showFor') this.apply(S.nextShowFor(this.values));
             else if (id === 'slideshow') this.apply(S.nextSlideshow(this.values));
-            else if (id === 'readTitle' || id === 'caption' || id === 'sounds') this.apply(S.toggle(this.values, id));
+            else if (id === 'readTitle' || id === 'readDescription' || id === 'caption' || id === 'sounds') this.apply(S.toggle(this.values, id));
         }
     }
 
@@ -170,7 +171,7 @@ class Model {
             var base = {id: m.id, label: m.label, icon: m.icon}, state;
             if (m.id === 'showFor') state = v.slideshow ? inactive('Open while slideshow runs') : active(showForText(v.showFor));
             else if (m.id === 'slideshow') state = v.slideshow ? active(slideshowText(v.slideshow)) : inactive(TEXT.offTap);
-            else if (m.id === 'readTitle') state = v.readTitle ? active('On · title only') : onOff(false);
+            else if (m.id === 'readTitle') state = v.readTitle ? (v.readDescription ? active(TEXT.on) : active('On · title only')) : onOff(false);
             else state = onOff(v[m.id]);
             return Object.assign(base, state);
         });

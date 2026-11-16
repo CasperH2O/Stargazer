@@ -51,6 +51,7 @@ How a new picture appears.
 - **Show for:** how long the picture stays before Jibo's eye returns: 10 s, 30 s, 1 min, 5 min, or Until I close it.
 - **Slideshow:** off, or a picture from another source every 1, 5 or 30 minutes. A running slideshow keeps Stargazer open.
 - **Read title aloud:** on or off.
+- **Read description aloud:** off by default. Jibo reads the picture's description after the title.
 - **Telescope sounds:** Jibo's tripod clicks as the eyepiece moves. They come from Jibo's own sound library.
 - **Show caption:** on or off.
 

@@ -71,7 +71,15 @@ test('menus: captions, refusal notice, cycling More', () => {
   assert.equal(vm.tiles.items[0].caption, 'Open while slideshow runs');
   assert.equal(vm.tiles.items[2].caption, 'On · title only');
   assert.deepEqual(events, ['save', 'save']);
-  assert.ok(vm.tiles.pager, 'four items page');
+  assert.ok(vm.tiles.pager, 'six items, two pages of three');
+  assert.deepEqual(vm.tiles.items.map((i) => i.id), ['showFor', 'slideshow', 'readTitle', 'readDescription', 'caption', 'sounds']);
+  assert.equal(vm.tiles.items[3].caption, 'Off · tap to turn on');
+  model.tapItem('more', 'readDescription');
+  vm = model.view();
+  assert.equal(vm.tiles.items[3].caption, 'On');
+  assert.equal(vm.tiles.items[2].caption, 'On', 'the title tile no longer says "title only"');
+  assert.deepEqual(events, ['save', 'save', 'save']);
+  assert.equal(vm.tiles.canBack, false); assert.equal(vm.tiles.canForward, true);
 });
 
 test('settings hub summarises; offline shows a retry', () => {

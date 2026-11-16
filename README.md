@@ -46,6 +46,7 @@ On the picture:
 - **Show for:** how long the picture stays before Jibo's eye returns: 10 s, 30 s, 1 min, 5 min, or **Until I close it**.
 - **Slideshow:** off, or a picture from another source every 1, 5 or 30 minutes. A running slideshow keeps Stargazer open.
 - **Read title aloud:** on or off.
+- **Read description aloud:** off by default. When on, Jibo reads the description after the title (up to 900 characters, on a sentence), or alone when the title is off. Turning it off, swiping to another picture or leaving Stargazer stops him.
 - **Telescope sounds:** Jibo's tripod clicks as the eyepiece moves (on). They are played from Jibo's own sound library and are not part of this skill.
 - **Show caption:** on or off.
 

@@ -28,7 +28,8 @@ var DEFAULTS = {
     effects: {kenBurns: true, iris: true, lookUp: true, starfield: false},   // D29
     showFor: 10,
     slideshow: 0,
-    readTitle: true,       // the title only, never the description
+    readTitle: true,       // the title
+    readDescription: false,   // the description too (long; opt-in)
     caption: true,
     sounds: true           // Jibo's tripod clicks while the eyepiece searches
 };
@@ -49,6 +50,7 @@ function clean(values) {
         showFor: SHOW_FOR.indexOf(given.showFor) >= 0 ? given.showFor : d.showFor,
         slideshow: SLIDESHOW.indexOf(given.slideshow) >= 0 ? given.slideshow : d.slideshow,
         readTitle: typeof given.readTitle === 'boolean' ? given.readTitle : d.readTitle,
+        readDescription: typeof given.readDescription === 'boolean' ? given.readDescription : d.readDescription,
         caption: typeof given.caption === 'boolean' ? given.caption : d.caption,
         sounds: typeof given.sounds === 'boolean' ? given.sounds : d.sounds
     };

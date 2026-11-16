@@ -9,7 +9,7 @@ const S = lib('settings.js');
 test('defaults: calm effects, 10 s, no slideshow, read title, every source on', () => {
   const v = S.clean();
   assert.deepEqual(v.effects, { kenBurns: true, iris: true, lookUp: true, starfield: false });
-  assert.equal(v.showFor, 10); assert.equal(v.slideshow, 0); assert.equal(v.readTitle, true); assert.equal(v.caption, true);
+  assert.equal(v.showFor, 10); assert.equal(v.slideshow, 0); assert.equal(v.readTitle, true); assert.equal(v.readDescription, false); assert.equal(v.caption, true);
   assert.deepEqual(v.sources, { hubble: true, webb: true, noirlab: true });
   assert.deepEqual(S.enabledSources(v), ['hubble', 'webb', 'noirlab']);
 });
@@ -161,7 +161,7 @@ test('settings.json: junk and huge values are not written back; the file is tiny
   store.write(junk);
   const size = statSync(join(root, 'settings.json')).size;
   assert.ok(size < 512 && size < LIMITS['settings.json'], `${size} bytes`);
-  const all = S.clean({ sources: { hubble: true, webb: true, noirlab: true }, effects: { kenBurns: true, iris: true, lookUp: true, starfield: true }, showFor: 300, slideshow: 30, readTitle: true, caption: true, sounds: true });
+  const all = S.clean({ sources: { hubble: true, webb: true, noirlab: true }, effects: { kenBurns: true, iris: true, lookUp: true, starfield: true }, showFor: 300, slideshow: 30, readTitle: true, readDescription: true, caption: true, sounds: true });
   assert.ok(Buffer.byteLength(JSON.stringify(all)) < LIMITS['settings.json'] / 8);
   writeFileSync(join(root, 'settings.json'), JSON.stringify({ showFor: 60, pad: 'x'.repeat(LIMITS['settings.json']) }));
   assert.deepEqual(store.read(), S.clean(), 'a file over the read limit reads as the defaults');
@@ -194,4 +194,12 @@ test('.tmp leftovers of an interrupted write are swept on the next read; fresh o
   assert.deepEqual(readdirSync(root).sort(), ['notes.txt', 'seen.json', 'settings.json']);
   // Reading before the folder exists is fine.
   assert.deepEqual(new S.Store(join(root, 'nope')).read(), S.clean());
+});
+
+test('read description: off by default, an old file without it loads, a bad value falls back, toggle flips only it', () => {
+  assert.equal(S.clean({ readTitle: false, showFor: 30 }).readDescription, false);
+  assert.equal(S.clean({ readDescription: 'yes' }).readDescription, false);
+  assert.equal(S.clean({ readDescription: true }).readDescription, true);
+  const on = S.toggle(S.clean(), 'readDescription').values;
+  assert.equal(on.readDescription, true); assert.equal(on.readTitle, true);
 });

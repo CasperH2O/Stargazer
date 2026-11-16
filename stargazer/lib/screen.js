@@ -6,7 +6,7 @@ var path = require('path');
 var layout = require('./layout'), createArt = require('./art'), createLog = require('./log');
 var Model = require('./model'), S = require('./settings'), Presenter = require('./presenter');
 var Catalog = require('./catalog'), Images = require('./images').Images, Loader = require('./loader'), net = require('./net');
-var sources = require('./sources'), Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
+var sources = require('./sources'), textUtil = require('./sources/text'), Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
 var C = layout.color, P = layout.pairs, TL = layout.tiles, I = layout.info;
 
 function iconPath(name) { return path.join(__dirname, '..', 'resources', 'icons', name + '.png'); }
@@ -15,7 +15,22 @@ var RETRY_MS = 60000;        // offline: try again by itself every minute
 var WATCHDOG_MS = 20000;     // still loading after this long: log where it is stuck (and every 20 s after)
 var GIVE_UP_MS = 90000;      // still loading after this long: show the offline screen (it retries by itself)
 var CLOSE_MS = 3000;         // our own limit for the view's close, shorter than Be's 5 s force-close
+var SPEECH_MAX = 900;        // longest description read aloud (the parsers already stop there)
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// A description as the voice should hear it: no links or bracketed notes, one line, whole
+// sentences up to SPEECH_MAX characters.
+function cleanDescription(description) {
+    var s = String(description || '').replace(/https?:\/\/\S+/g, ' ').replace(/\[[^\]]*\]/g, ' ').replace(/[<>*_#|~^`]/g, '').replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
+    return textUtil.upTo(s, SPEECH_MAX).replace(/\s*…$/, '');
+}
+// What Jibo says for a picture: the title (readTitle), then the description (readDescription).
+function spokenText(item, values) {
+    var parts = [];
+    if (values.readTitle && item.title) parts.push(String(item.title).trim());
+    var description = values.readDescription ? cleanDescription(item.description) : '';
+    if (description) parts.push(description);
+    return parts.map(function (p) { return /[.!?…]$/.test(p) ? p : p + '.'; }).join(' ');
+}
 function day(ms) {
     if (!ms) return '';
     var d = new Date(ms);
@@ -60,7 +75,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             // Info overlay: its text broken into lines (infoText), and the description page shown.
             this.infoCache = null; this.infoPage = 0; this.infoPages = 0;
             // Speech, sounds and settings changes.
-            this.spoken = null; this.speaking = false; this.moves = 0;
+            this.spoken = null; this.speaking = false; this.reads = null; this.moves = 0;
             this.dirty = false;             // the sources changed in the menus: load anew on the way back
             this.sourcesKey = null;
         }
@@ -247,12 +262,17 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.model.shown();
             this.seen = this.store.markSeen(this.seen, item.key);
             this.history = this.store.remember(this.history, item);
-            if (this.model.values.readTitle && this.spoken !== item.key && !this.model.covered()) { this.spoken = item.key; this.speak(item.title); }
+            var v = this.model.values, said = spokenText(item, v);
+            if (said && this.spoken !== item.key && !this.model.covered()) {
+                this.spoken = item.key;
+                this.speak(said, {readTitle: v.readTitle, readDescription: v.readDescription && !!cleanDescription(item.description)});
+            }
         }
-        speak(text) {
+        // `reads`: which settings this speech came from, so turning one off can stop it (saved()).
+        speak(text, reads) {
             var self = this, tts = jibo.tts;
             if (!tts || typeof tts.speak !== 'function' || !text) return;
-            this.speaking = true;
+            this.speaking = true; this.reads = reads || {};
             try {
                 Promise.resolve(tts.speak(text)).catch(function () {}).then(function () { self.speaking = false; });
             } catch (_) { this.speaking = false; }
@@ -264,6 +284,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         }
         saved(values) {
             try { this.store.write(values); } catch (error) { this.diagnostics.warn('settings not saved:', error && error.message); }
+            if (this.speaking && this.reads && ((this.reads.readTitle && !values.readTitle) || (this.reads.readDescription && !values.readDescription))) this.stopSpeaking();
             if (this.presenter) this.presenter.configure({effects: values.effects, showCaption: values.caption});
             if (this.sounds && values.sounds) this.sounds.prepare();
             this.dirty = this.dirty || this.sourcesKey !== S.enabledSources(values).join(',');

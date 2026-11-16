@@ -271,3 +271,57 @@ test('info overlay: a short description is one page, no pan, the title stays at 
   assert.equal(skill.model.top(), 'settings');
   const closing = close(skill); await settle(); views.calls[1].onComplete(); await closing;
 });
+
+function fakeTts(jibo) {
+  const t = { said: [], stops: 0, speak(text) { t.said.push(text); return new Promise(() => {}); }, stop() { t.stops++; return Promise.resolve(); } };
+  jibo.tts = t;
+  return t;
+}
+const LONG = { key: 'a1', source: 'a', title: 'Cat\'s Eye', description: 'A planetary nebula. See https://example.org/x for [more] details. It is *old*.' };
+// Opens a skill with a fake voice, runs `check`, and closes the skill.
+async function speaking(values, item, check) {
+  const h = harness({ lists: { a: [item || LONG] }, values });
+  const tts = fakeTts(h.jibo);
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try { check(tts, h); }
+  finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+}
+
+test('read aloud: the title by default; the description only when asked, after the title, as one clean utterance', async () => {
+  await speaking({}, null, (tts) => assert.deepEqual(tts.said, ['Cat\'s Eye.'], 'default: title only'));
+  await speaking({ readDescription: true }, null, (tts) => assert.deepEqual(tts.said, ['Cat\'s Eye. A planetary nebula. See for details. It is old.']));
+  await speaking({ readTitle: false, readDescription: true }, null, (tts) => assert.deepEqual(tts.said, ['A planetary nebula. See for details. It is old.'], 'description alone'));
+  await speaking({ readTitle: false }, null, (tts) => assert.deepEqual(tts.said, [], 'both off: silent'));
+});
+
+test('read aloud: a long description is cut on a sentence at 900 characters; nothing is said without a description', async () => {
+  const description = Array.from({ length: 80 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+  await speaking({ readTitle: false, readDescription: true }, { ...LONG, description }, (tts) => {
+    const said = tts.said[0];
+    assert.ok(said.length <= 900 && said.length > 800 && /here\.$/.test(said), said.length);
+  });
+  await speaking({ readTitle: false, readDescription: true }, { ...LONG, description: '' }, (tts) => assert.deepEqual(tts.said, []));
+});
+
+test('read aloud: turning the setting off, a slideshow advance and closing cut the speech', async () => {
+  await speaking({ readDescription: true }, null, (tts, h) => {
+    assert.equal(h.skill.speaking, true);
+    h.skill.saved(S.clean({ readDescription: true }));
+    assert.equal(tts.stops, 0, 'unrelated save: no cut');
+    h.skill.saved(S.clean({ readDescription: false }));
+    assert.equal(tts.stops, 1, 'description switched off while it is read');
+    h.skill.speak('Hello.', { readTitle: true, readDescription: false });
+    h.skill.saved(S.clean({ readDescription: false }));
+    assert.equal(tts.stops, 1, 'a title-only speech is not cut by that');
+    h.skill.next();
+    assert.equal(tts.stops, 2, 'the next picture cuts the speech');
+  });
+});
+
+test('read aloud: nothing is said when a menu already covers the picture', async () => {
+  const h = harness({ lists: { a: [LONG] }, values: { readDescription: true } });
+  const tts = fakeTts(h.jibo);
+  h.skill.open(); await settle(); h.skill.model.openSettings(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try { assert.deepEqual(tts.said, []); }
+  finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+});
