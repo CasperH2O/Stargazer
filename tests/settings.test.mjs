@@ -167,7 +167,7 @@ test('settings.json: junk and huge values are not written back; the file is tiny
   assert.deepEqual(store.read(), S.clean(), 'a file over the read limit reads as the defaults');
 });
 
-test('writeJson refuses to write a file its own reader would discard, and leaves no .tmp behind', () => {
+test('writeJson refuses to write a file its own reader would discard', () => {
   const root = tmpRoot(), store = new S.Store(root);
   store.markSeen([], 'a');
   // Forge a write over the limit through the store's own path: a source entry that passes validKey
@@ -176,7 +176,14 @@ test('writeJson refuses to write a file its own reader would discard, and leaves
   LIMITS['seen.json'] = 8;
   try { assert.deepEqual(store.markSeen(['a'], 'bbbbbbbbbbbb'), ['a', 'bbbbbbbbbbbb']); } finally { LIMITS['seen.json'] = original; }
   assert.deepEqual(store.seen(), ['a'], 'the refused write left the old file alone');
-  assert.deepEqual(readdirSync(root).sort(), ['seen.json']);
+  assert.deepEqual(readdirSync(root).sort(), ['seen.json'], 'no .tmp left either');
+});
+
+test('a write that fails after the .tmp exists removes the .tmp and keeps the error', () => {
+  const root = tmpRoot(), store = new S.Store(root);
+  mkdirSync(join(root, 'settings.json'), { recursive: true });   // the rename onto a folder fails, after the .tmp was written
+  assert.throws(() => store.write({ showFor: 30 }));
+  assert.deepEqual(readdirSync(root), ['settings.json'], 'no settings.json.tmp left');
 });
 
 test('.tmp leftovers of an interrupted write are swept on the next read; fresh ones are left alone', () => {

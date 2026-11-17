@@ -3,9 +3,8 @@
 //   settings.json  the person's choices
 //   seen.json      ids of pictures already shown, for the "New" mark (at most SEEN_MAX)
 //   sources.json   the newest picture last shown from each source (used by catalog.js)
-// Pictures are never written to disk. Everything written here is bounded in entries AND bytes, and
-// never larger than the limit the same file is read back with (LIMITS): a file the reader would
-// refuse is a list silently reset to empty, so writeJson() refuses to write one (D33).
+// Pictures are never written to disk. Every file is capped in entries and bytes, and never written
+// larger than the limit it is read back with (LIMITS, D33).
 var fs = require('fs'), path = require('path');
 
 var NAME = 'stargazer';
@@ -28,8 +27,8 @@ var DEFAULTS = {
     effects: {kenBurns: true, iris: true, lookUp: true, starfield: false},   // D29
     showFor: 10,
     slideshow: 0,
-    readTitle: true,       // the title
-    readDescription: false,   // the description too (long; opt-in)
+    readTitle: true,
+    readDescription: false,   // long, so opt-in
     caption: true,
     sounds: true           // Jibo's tripod clicks while the eyepiece searches
 };
@@ -96,8 +95,8 @@ function readJson(file, limit) {
         return JSON.parse(fs.readFileSync(file, 'utf8'));
     } catch (_) { return null; }
 }
-// Atomic: a half-written file is never read back.
-// A failed write removes its .tmp file; sweepTemporary() removes those an interrupted one left.
+// Atomic: a half-written file is never read back. A failed write removes its .tmp file;
+// sweepTemporary() removes those an interrupted write left.
 function writeJson(root, name, value) {
     var text = JSON.stringify(value) + '\n';
     if (Buffer.byteLength(text, 'utf8') > LIMITS[name]) throw Error(name + ' would be over its ' + LIMITS[name] + ' byte limit');
@@ -134,9 +133,7 @@ class Store {
     }
     write(values) { var v = clean(values); writeJson(this.root, 'settings.json', v); return v; }
     seen() { return cleanSeen(readJson(path.join(this.root, 'seen.json'), LIMITS['seen.json'])); }
-    // Oldest first, the first one to go once full. An id already in the list keeps its place and
-    // costs no write: it is not refreshed, so after SEEN_MAX newer pictures it shows "New" once
-    // more, which is harmless (D33). An id that is not a valid key is not recorded.
+    // Oldest first. A known id keeps its place and costs no write (D33); an invalid id is not recorded.
     markSeen(list, id) {
         if (!validKey(id)) return list;
         if (list.indexOf(id) >= 0) return list;
@@ -184,7 +181,7 @@ function enabledSources(values) { return SOURCES.filter(function (id) { return v
 function closeAfter(values) { return values.slideshow ? 0 : values.showFor; }
 
 module.exports = {
-    NAME: NAME, SOURCES: SOURCES, EFFECTS: EFFECTS, SHOW_FOR: SHOW_FOR, SLIDESHOW: SLIDESHOW, DEFAULTS: DEFAULTS, SEEN_MAX: SEEN_MAX, KEY_MAX: KEY_MAX, LIMITS: LIMITS, SEEN_BYTES: SEEN_BYTES,
+    NAME: NAME, SOURCES: SOURCES, EFFECTS: EFFECTS, SHOW_FOR: SHOW_FOR, SLIDESHOW: SLIDESHOW, DEFAULTS: DEFAULTS, SEEN_MAX: SEEN_MAX, KEY_MAX: KEY_MAX, LIMITS: LIMITS,
     clean: clean, dataRoot: dataRoot, onRobot: onRobot, Store: Store,
     toggleSource: toggleSource, toggleEffect: toggleEffect, nextShowFor: nextShowFor, nextSlideshow: nextSlideshow, toggle: toggle,
     enabledSources: enabledSources, closeAfter: closeAfter

@@ -14,7 +14,7 @@ Stargazer needs BEam 3.1.9 or newer and an internet connection.
    - the title;
    - what the picture shows, for example **M 30 · Capricornus · Hubble**;
    - who took it.
-4. Jibo reads the title aloud. He reads only the title, never the long description.
+4. Jibo reads the title aloud, and the description too if you turn on **Read description aloud** under More.
 5. After 10 seconds, Jibo's eye comes back. Touching the picture restarts that time.
 
 Each time, Stargazer picks **one** source at random and shows its newest picture. It prefers a source that it knows has something new without downloading anything. Either that source's list is still in memory with an unseen newest picture, or the source's publishing rhythm (weekly or monthly) has passed since the last picture it showed. Only the chosen source is contacted. If it fails, Stargazer tries another one.
@@ -46,7 +46,7 @@ On the picture:
 - **Show for:** how long the picture stays before Jibo's eye returns: 10 s, 30 s, 1 min, 5 min, or **Until I close it**.
 - **Slideshow:** off, or a picture from another source every 1, 5 or 30 minutes. A running slideshow keeps Stargazer open.
 - **Read title aloud:** on or off.
-- **Read description aloud:** off by default. When on, Jibo reads the description after the title (up to 900 characters, on a sentence), or alone when the title is off. Turning it off, swiping to another picture or leaving Stargazer stops him.
+- **Read description aloud:** off by default. When on, Jibo reads the description after the title (up to 900 characters, on a sentence), or alone when the title is off. The show time waits for the reading to end (at most 2 minutes). Turning it off, swiping to another picture or leaving Stargazer stops him.
 - **Telescope sounds:** Jibo's tripod clicks as the eyepiece moves (on). They are played from Jibo's own sound library and are not part of this skill.
 - **Show caption:** on or off.
 

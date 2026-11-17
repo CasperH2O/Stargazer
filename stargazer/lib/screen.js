@@ -6,7 +6,8 @@ var path = require('path');
 var layout = require('./layout'), createArt = require('./art'), createLog = require('./log');
 var Model = require('./model'), S = require('./settings'), Presenter = require('./presenter');
 var Catalog = require('./catalog'), Images = require('./images').Images, Loader = require('./loader'), net = require('./net');
-var sources = require('./sources'), textUtil = require('./sources/text'), Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
+var sources = require('./sources'), speech = require('./speech'), InfoPages = require('./info').InfoPages;
+var Motion = require('./motion').Motion, Sounds = require('./sounds').Sounds;
 var C = layout.color, P = layout.pairs, TL = layout.tiles, I = layout.info;
 
 function iconPath(name) { return path.join(__dirname, '..', 'resources', 'icons', name + '.png'); }
@@ -15,34 +16,20 @@ var RETRY_MS = 60000;        // offline: try again by itself every minute
 var WATCHDOG_MS = 20000;     // still loading after this long: log where it is stuck (and every 20 s after)
 var GIVE_UP_MS = 90000;      // still loading after this long: show the offline screen (it retries by itself)
 var CLOSE_MS = 3000;         // our own limit for the view's close, shorter than Be's 5 s force-close
-var SPEECH_MAX = 900;        // longest description read aloud (the parsers already stop there)
+var SPEECH_WAIT_MS = 120000; // the most the end of the show time waits for a reading to finish
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-// A description as the voice should hear it: no links or bracketed notes, one line, whole
-// sentences up to SPEECH_MAX characters.
-function cleanDescription(description) {
-    var s = String(description || '').replace(/https?:\/\/\S+/g, ' ').replace(/\[[^\]]*\]/g, ' ').replace(/[<>*_#|~^`]/g, '').replace(/\s+/g, ' ').replace(/\s+([.,;:!?])/g, '$1').trim();
-    return textUtil.upTo(s, SPEECH_MAX).replace(/\s*…$/, '');
-}
-// What Jibo says for a picture: the title (readTitle), then the description (readDescription).
-function spokenText(item, values) {
-    var parts = [];
-    if (values.readTitle && item.title) parts.push(String(item.title).trim());
-    var description = values.readDescription ? cleanDescription(item.description) : '';
-    if (description) parts.push(description);
-    return parts.map(function (p) { return /[.!?…]$/.test(p) ? p : p + '.'; }).join(' ');
-}
 function day(ms) {
     if (!ms) return '';
     var d = new Date(ms);
     return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
 }
 
-// deps (tests only): {store, net, Presenter, Images, Catalog, createArt, Motion, Sounds, document, closeMs, watchdogMs, giveUpMs}
+// deps (tests only): {store, net, Presenter, Images, Catalog, createArt, Motion, Sounds, document, closeMs, watchdogMs, giveUpMs, speechWaitMs}
 module.exports = function createScreen(jibo, BeSkill, deps) {
     deps = deps || {};
     var PresenterClass = deps.Presenter || Presenter, ImagesClass = deps.Images || Images, CatalogClass = deps.Catalog || Catalog;
     var makeArt = deps.createArt || createArt, MotionClass = deps.Motion || Motion, SoundsClass = deps.Sounds || Sounds;
-    var closeMs = deps.closeMs || CLOSE_MS, watchdogMs = deps.watchdogMs || WATCHDOG_MS, giveUpMs = deps.giveUpMs || GIVE_UP_MS;
+    var closeMs = deps.closeMs || CLOSE_MS, watchdogMs = deps.watchdogMs || WATCHDOG_MS, giveUpMs = deps.giveUpMs || GIVE_UP_MS, speechWaitMs = deps.speechWaitMs || SPEECH_WAIT_MS;
     function doc() { return deps.document || (typeof document !== 'undefined' ? document : undefined); }
     function frame(fn) { return typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fn) : setTimeout(fn, 16); }
     return class StargazerSkill extends BeSkill {
@@ -72,10 +59,12 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             // Menu paging: the row's offset, an ongoing drag or spring, and the pan gesture.
             this.slide = {x: 0, velocity: 0, target: 0}; this.dragging = null; this.animation = null; this.pan = null;
             this.tapping = false;           // the tap-on-picture action is on
-            // Info overlay: its text broken into lines (infoText), and the description page shown.
-            this.infoCache = null; this.infoPage = 0; this.infoPages = 0;
+            this.overlay = new InfoPages();  // the info overlay's text and the description page showing
             // Speech, sounds and settings changes.
-            this.spoken = null; this.speaking = false; this.reads = null; this.moves = 0;
+            this.spoken = null; this.speaking = false; this.moves = 0;
+            this.speechId = 0;              // counts the speeches, so that a cut one cannot end a newer one
+            this.reads = null;              // the settings the speech now playing came from, see cutBy()
+            this.exitTimer = null;          // the show time ended while Jibo was reading: leave when it ends, or after SPEECH_WAIT_MS
             this.dirty = false;             // the sources changed in the menus: load anew on the way back
             this.sourcesKey = null;
         }
@@ -102,7 +91,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 if (this.model) { this.model.close(); this.model = null; }
             }
             this.leaving = false; this.closing = null; this.slide = {x: 0, velocity: 0, target: 0};
-            this.infoCache = null; this.infoPage = 0; this.infoPages = 0;
+            this.overlay.reset(); this.cancelExit();
             this.dirty = false; this.sourcesKey = null; this.spoken = null; this.current = null; this.pending = null;
             if (!views || !views.createView || !views.changeView || !global.PIXI) { this.exit({noElementsOfSurprise: true}); return; }
             this.store = deps.store || new S.Store();
@@ -111,7 +100,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.history = this.store.history();
             this.model = new Model(values, {
                 onChange: function () { self.render(); },
-                onExit: function () { self.diagnostics.info('show time over: back to the eye'); self.leave(); },
+                onExit: function () { self.showTimeOver(); },
                 onNext: function () { self.next(); },
                 onSave: function (v) { self.saved(v); },
                 onRetry: function () { self.start(); }
@@ -262,29 +251,58 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.model.shown();
             this.seen = this.store.markSeen(this.seen, item.key);
             this.history = this.store.remember(this.history, item);
-            var v = this.model.values, said = spokenText(item, v);
-            if (said && this.spoken !== item.key && !this.model.covered()) {
+            var said = speech.spokenText(item, this.model.values);
+            if (said.text && this.spoken !== item.key && !this.model.covered()) {
                 this.spoken = item.key;
-                this.speak(said, {readTitle: v.readTitle, readDescription: v.readDescription && !!cleanDescription(item.description)});
+                this.speak(said.text, {readTitle: said.readsTitle, readDescription: said.readsDescription});
             }
         }
-        // `reads`: which settings this speech came from, so turning one off can stop it (saved()).
+        // `reads` says which settings the speech came from, so that turning one off can stop it (cutBy).
         speak(text, reads) {
-            var self = this, tts = jibo.tts;
+            var self = this, tts = jibo.tts, id = ++this.speechId;
             if (!tts || typeof tts.speak !== 'function' || !text) return;
             this.speaking = true; this.reads = reads || {};
+            function ended() { if (self.speechId === id) self.speechEnded(); }
             try {
-                Promise.resolve(tts.speak(text)).catch(function () {}).then(function () { self.speaking = false; });
-            } catch (_) { this.speaking = false; }
+                Promise.resolve(tts.speak(text)).catch(function () {}).then(ended);
+            } catch (_) { ended(); }
+        }
+        speechEnded() {
+            this.speaking = false;
+            if (!this.exitTimer) return;
+            if (this.model && this.model.base === 'viewer' && !this.model.covered()) this.showTimeOver();
+            else this.cancelExit();          // a menu opened meanwhile: the person is still here
         }
         stopSpeaking() {
             if (!this.speaking) return;
             this.speaking = false;
             try { Promise.resolve(jibo.tts.stop()).catch(function () {}); } catch (_) {}
         }
+        // Whether `values` turn off a setting that the speech now playing came from.
+        cutBy(values) {
+            var reads = this.reads || {};
+            return !!((reads.readTitle && !values.readTitle) || (reads.readDescription && !values.readDescription));
+        }
+        // The show time is over: back to the eye, but not in the middle of a reading.
+        showTimeOver() {
+            var self = this;
+            if (this.speaking) {
+                if (!this.exitTimer) this.exitTimer = setTimeout(function () {
+                    self.exitTimer = null;
+                    if (!self.model || self.model.covered()) return;
+                    self.stopSpeaking();
+                    self.showTimeOver();
+                }, speechWaitMs);
+                return;
+            }
+            this.cancelExit();
+            this.diagnostics.info('show time over: back to the eye');
+            this.leave();
+        }
+        cancelExit() { clearTimeout(this.exitTimer); this.exitTimer = null; }
         saved(values) {
             try { this.store.write(values); } catch (error) { this.diagnostics.warn('settings not saved:', error && error.message); }
-            if (this.speaking && this.reads && ((this.reads.readTitle && !values.readTitle) || (this.reads.readDescription && !values.readDescription))) this.stopSpeaking();
+            if (this.speaking && this.cutBy(values)) this.stopSpeaking();
             if (this.presenter) this.presenter.configure({effects: values.effects, showCaption: values.caption});
             if (this.sounds && values.sounds) this.sounds.prepare();
             this.dirty = this.dirty || this.sourcesKey !== S.enabledSources(values).join(',');
@@ -365,17 +383,19 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                     if (self.active() && !self.dragging && !self.animation) fn();
                 }}};
             }
+            // options: bold, fill, and for several lines `lines` (the most) with their height `line`. Then
+            // wrap: 'manual' if the lines are broken by us (block()) instead of by the Label.
+            // align: 'left' (else centred); anchorY: 'middle' (else the top, for several lines).
             function label(id, x, y, size, width, options) {
                 options = options || {};
-                var fill = options.fill || C.text;
+                var fill = options.fill || C.text, left = options.align === 'left';
                 self.ids.push(id); self.labels[id] = null; self.fills[id] = fill;
                 var style = {fontFamily: options.bold ? layout.font.title : layout.font.body, fontSize: size, fill: fill,
-                    align: options.left ? 'left' : 'center', fontWeight: options.bold ? 'bold' : 'normal'};
+                    align: left ? 'left' : 'center', fontWeight: options.bold ? 'bold' : 'normal'};
                 if (options.lines) style.lineHeight = options.line;
-                // `lines` alone: the Label wraps. `broken`: the lines are broken here (block()), `middle`: centred on y.
-                if (options.lines && !options.broken) { style.wordWrap = true; style.wordWrapWidth = width; }
+                if (options.lines && options.wrap !== 'manual') { style.wordWrap = true; style.wordWrapWidth = width; }
                 components.push({type: 'Label', id: id, text: ' ', position: {x: x, y: y},
-                    targetAnchor: {x: options.left ? 0 : 0.5, y: options.lines && !options.middle ? 0 : 0.5},
+                    targetAnchor: {x: left ? 0 : 0.5, y: options.lines && options.anchorY !== 'middle' ? 0 : 0.5},
                     bounds: {width: width, height: options.lines ? options.lines * options.line + size * 0.6 : size * 1.6}, style: style});
             }
             function tile(id, icon, x, fn) {
@@ -413,11 +433,13 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 });
             });
             // Info overlay.
-            label('info-title', I.title.x, I.title.y, I.title.size, I.title.width, {bold: true, lines: I.title.lines, line: I.title.line, broken: true, middle: true});
+            // Their lines are broken by renderInfo (block()), so the Labels do not wrap.
+            function broken(box, extra) { return Object.assign({lines: box.lines, line: box.line, wrap: 'manual'}, extra); }
+            label('info-title', I.title.x, I.title.y, I.title.size, I.title.width, broken(I.title, {bold: true, anchorY: 'middle'}));
             label('info-meta', 640, I.meta.y, I.meta.size, I.meta.width, {fill: C.muted});
-            label('info-body', I.body.x, I.body.y, I.body.size, I.body.width, {lines: I.body.lines, line: I.body.line, broken: true, left: true});
-            label('info-more', I.more.x, I.more.y, I.more.size, I.more.width, {lines: I.more.lines, line: I.more.line, broken: true, left: true});
-            label('info-credit', 640, I.credit.y, I.credit.size, I.credit.width, {fill: C.muted, lines: I.credit.lines, line: I.credit.line, broken: true});
+            label('info-body', I.body.x, I.body.y, I.body.size, I.body.width, broken(I.body, {align: 'left'}));
+            label('info-more', I.more.x, I.more.y, I.more.size, I.more.width, broken(I.more, {align: 'left'}));
+            label('info-credit', 640, I.credit.y, I.credit.size, I.credit.width, broken(I.credit, {fill: C.muted}));
             action('btn-settings', 'gear', P.grey, I.gear.x, I.gear.y, I.gear.size, function () { self.press('settings'); });
             // Offline.
             label('body', 640, layout.dialog.large.y - 40, layout.dialog.large.size - 5, layout.dialog.large.width, {lines: 2, line: layout.dialog.large.line});
@@ -502,9 +524,10 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             });
             if (vm.tiles && vm.tiles.kind === 'list') this.renderList(vm.tiles, on);
             var bar = vm.tiles && vm.tiles.pager || null;
+            var longList = !!(vm.tiles && vm.tiles.kind === 'list' && vm.tiles.items.length > TL.perPage);
             if (vm.screen === 'info' && vm.picture) bar = this.renderInfo(vm.picture, on);
-            else { this.infoPage = 0; this.infoPages = 0; }
-            this.panning(!!(vm.tiles && vm.tiles.kind === 'list' && vm.tiles.items.length > TL.perPage || this.infoPages > 1));
+            else this.overlay.close();
+            this.panning(longList || this.overlay.count > 1);
             if (vm.body) { this.text('body', vm.body); on('body'); }
             if (vm.button) { on('btn-' + vm.button.kind); this.text('cap-' + vm.button.kind, vm.button.caption); on('cap-' + vm.button.kind); }
             this.ids.forEach(function (id) { self.show(id, !!want[id]); });
@@ -538,39 +561,23 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
                 }
             });
         }
-        // The info overlay: the title, then page `infoPage` of the description (page 1 under the meta
-        // line and above the credit). Returns the pager bar for the pages (null for one page).
+        // The info overlay: the title, then the current page of the description (page 1 sits under the
+        // meta line and above the credit). Returns the pager bar for the pages (null for one page).
         renderInfo(p, on) {
-            var item = p.item, t = this.infoText(item);
+            var item = p.item, o = this.overlay;
             on('btn-settings');
+            var t = o.prepare(item, {title: this.measurer(this.component('info-title')), body: this.measurer(this.component('info-body')),
+                credit: this.measurer(this.component('info-credit'))});
             if (!t) return null;                // the labels are not built yet: the frame loop draws again
-            this.infoPages = t.pages.length;
-            this.infoPage = Math.min(this.infoPage, this.infoPages - 1);
             this.block('info-title', t.title.lines, t.title.size); on('info-title');
-            if (this.infoPage === 0) {
-                this.text('info-meta', (p.isNew ? 'New · ' : '') + [p.source, day(item.date)].filter(Boolean).join(' · '), I.meta.min); on('info-meta');
+            if (o.page === 0) {
+                var meta = (p.isNew ? 'New · ' : '') + [p.source, day(item.date)].filter(Boolean).join(' · ');
+                this.text('info-meta', meta, I.meta.min); on('info-meta');
                 this.fill('info-meta', p.isNew ? C.accent : C.muted);
                 if (t.pages[0].length) { this.block('info-body', t.pages[0], I.body.size); on('info-body'); }
                 if (t.credit.lines.length) { this.block('info-credit', t.credit.lines, t.credit.size); on('info-credit'); }
-            } else { this.block('info-more', t.pages[this.infoPage], I.more.size); on('info-more'); }
-            return layout.pagerAt(this.infoPage, this.infoPages);
-        }
-        // The overlay's text broken into lines that fit its labels (once per picture), or null while
-        // the labels are not there. {title: {lines, size}, pages: [[line]], credit: {lines, size}}
-        infoText(item) {
-            var key = [item.key, item.title, item.description, item.credit, item.license].join('|');
-            if (this.infoCache && this.infoCache.key === key) return this.infoCache;
-            var title = this.measurer(this.component('info-title')), body = this.measurer(this.component('info-body')),
-                credit = this.measurer(this.component('info-credit'));
-            if (!title || !body || !credit) return null;
-            var lines = layout.wrap(item.description, I.body.width, I.body.size, body);
-            this.infoPage = 0;
-            return this.infoCache = {
-                key: key,
-                title: layout.wrapFit(item.title, I.title.width, I.title.size, I.title.min, I.title.lines, title),
-                pages: layout.paginate(lines, I.body.lines, I.more.lines),
-                credit: layout.wrapFit(sources.creditLine(item), I.credit.width, I.credit.size, I.credit.size, I.credit.lines, credit)
-            };
+            } else { this.block('info-more', t.pages[o.page], I.more.size); on('info-more'); }
+            return layout.pagerAt(o.page, o.count);
         }
         // A tap anywhere on the picture opens the info overlay. A view-wide tap action would
         // swallow the buttons' taps, so it exists only while the bare picture shows.
@@ -669,7 +676,9 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         paging() {
             var vm = this.vm, t = vm && vm.tiles;
             if (t && t.kind === 'list') return {canBack: t.canBack, canForward: t.canForward};
-            if (vm && vm.screen === 'info' && this.infoPages > 1) return {info: true, canBack: this.infoPage > 0, canForward: this.infoPage < this.infoPages - 1};
+            if (vm && vm.screen === 'info' && this.overlay.count > 1) {
+                return {info: true, canBack: this.overlay.canBack(), canForward: this.overlay.canForward()};
+            }
             return null;
         }
         turn(direction) {
@@ -684,9 +693,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         }
         // Another page of the description: it slides in from the side and fades in (placeInfo).
         turnInfo(direction) {
-            var page = this.infoPage + direction;
-            if (page < 0 || page >= this.infoPages) { this.settle(0); return; }
-            this.infoPage = page;
+            if (!this.overlay.turn(direction)) { this.settle(0); return; }
             this.slide.x = direction * I.enter;
             this.render();
             this.settle(0);
@@ -707,7 +714,8 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             }
             frame(tick);
         }
-        // List tiles sit at slotX(n - start) + the drag offset.
+        // Moves what a pan or a spring moves: the list tiles (at slotX(n - start) + the offset), or
+        // on the info overlay the description's text.
         place(x) {
             this.slide.x = x;
             var t = this.vm && this.vm.tiles, self = this;
@@ -745,7 +753,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.disarmWatchdog();
             if (this.sounds) { this.sounds.close(); this.sounds = null; }
             this.panning(false); this.animation = null; this.dragging = null; this.slide = {x: 0, velocity: 0, target: 0};
-            this.stopSpeaking();
+            this.stopSpeaking(); this.cancelExit();
             if (this.motion) this.motion.close();
         }
         disposeDecor() {

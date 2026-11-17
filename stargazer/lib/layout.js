@@ -121,10 +121,14 @@ function wrap(value, width, size, measure) {
         if (line) { lines.push(line); line = ''; }
         var characters = Array.from(word);
         while (characters.length > 1 && measure(characters.join(''), size) > width) {
-            var n = characters.length - 1;
-            while (n > 1 && measure(characters.slice(0, n).join(''), size) > width) --n;
-            lines.push(characters.slice(0, n).join(''));
-            characters = characters.slice(n);
+            // The most characters that still fit (at least one), found by bisection.
+            var fits = 1, over = characters.length;
+            while (over - fits > 1) {
+                var middle = Math.floor((fits + over) / 2);
+                if (measure(characters.slice(0, middle).join(''), size) <= width) fits = middle; else over = middle;
+            }
+            lines.push(characters.slice(0, fits).join(''));
+            characters = characters.slice(fits);
         }
         line = characters.join('');
     });

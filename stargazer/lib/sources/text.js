@@ -46,6 +46,9 @@ function sentences(s, count, max) {
     if (out.length > max) out = out.slice(0, max - 1).replace(/\s+\S*$/, '') + '…';
     return out;
 }
+// The longest description kept and read aloud.
+var DESCRIPTION_MAX = 900;
+
 // As many whole sentences as fit in `max` characters (the first one cut with "…" when it alone is longer).
 function upTo(s, max) {
     s = String(s || '').trim();
@@ -55,4 +58,5 @@ function upTo(s, max) {
 }
 function date(value) { var t = Date.parse(String(value || '').replace(/(\d)\.(\s)/, '$1$2')); return isFinite(t) ? t : 0; }
 
-module.exports = {decode: decode, plain: plain, tag: tag, items: items, row: row, sentences: sentences, upTo: upTo, date: date};
+module.exports = {decode: decode, plain: plain, tag: tag, items: items, row: row, sentences: sentences, upTo: upTo, date: date,
+    DESCRIPTION_MAX: DESCRIPTION_MAX};

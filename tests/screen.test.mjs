@@ -62,7 +62,7 @@ function harness(over = {}) {
   class BeSkill { constructor() { this.log = { info: (t) => log.push(t), warn: (t) => log.push(t), error: (t) => log.push(t) }; } exit(o) { this.exited = o; } destroy(done) { done(); } }
   const Skill = createScreen(jibo, BeSkill, {
     store, Presenter, Images, Catalog, createArt: () => ({ pill: () => ({}), destroy() {} }), document: {},
-    Motion: class { move() {} close() {} }, Sounds: over.Sounds, closeMs: 50, watchdogMs: 20, giveUpMs: 60
+    Motion: class { move() {} close() {} }, Sounds: over.Sounds, closeMs: 50, watchdogMs: 20, giveUpMs: 60, speechWaitMs: 80
   });
   return { jibo, views: jibo.face.views, skill: new Skill(), presenters, log, orders };
 }
@@ -218,7 +218,7 @@ test('info overlay: the full description in pages that fit, a horizontal pan tur
   skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
   skill.tapPicture();
   const lines = (id) => made[id].text.split('\n');
-  assert.ok(skill.infoPages >= 3, 'a long text takes several pages: ' + skill.infoPages);
+  assert.ok(skill.overlay.count >= 3, 'a long text takes several pages: ' + skill.overlay.count);
   assert.ok(lines('info-body').length <= 5 && lines('info-body').length >= 4, 'page 1 has 5 lines');
   for (const l of lines('info-body')) assert.ok(l.length * 18 <= 980, 'line fits: ' + l);
   assert.ok(made['info-title'].text.split('\n').length <= 2 && made['info-title'].text.endsWith('…'), 'a title that cannot fit ends in an ellipsis on line 2');
@@ -232,12 +232,12 @@ test('info overlay: the full description in pages that fit, a horizontal pan tur
   assert.deepEqual(gestures, ['pan'], 'the pan gesture is on while there are pages');
 
   skill.onPan({ deltaX: 200, isFinal: false }); skill.onPan({ deltaX: 200, isFinal: true });
-  assert.equal(skill.infoPage, 0, 'no page before the first');
+  assert.equal(skill.overlay.page, 0, 'no page before the first');
   skill.onPan({ deltaX: -80, isFinal: false }); assert.ok(made['info-body'].display.alpha < 1, 'fades while dragged');
   skill.onPan({ deltaX: -80, isFinal: true });
-  assert.equal(skill.infoPage, 0, 'a short drag turns nothing');
+  assert.equal(skill.overlay.page, 0, 'a short drag turns nothing');
   skill.onPan({ deltaX: -200, isFinal: false }); skill.onPan({ deltaX: -200, isFinal: true });
-  assert.equal(skill.infoPage, 1);
+  assert.equal(skill.overlay.page, 1);
   assert.equal(made['info-body'].display.visible, false);
   assert.equal(made['info-more'].display.visible, true);
   assert.equal(made['info-credit'].display.visible, false, 'later pages are text only');
@@ -250,7 +250,7 @@ test('info overlay: the full description in pages that fit, a horizontal pan tur
 
   skill.swipeDown();
   assert.equal(skill.model.top(), 'viewer');
-  assert.equal(skill.infoPage, 0);
+  assert.equal(skill.overlay.page, 0);
   assert.deepEqual(gestures, [], 'the pan gesture is off again');
   const closing = close(skill); await settle(); views.calls[1].onComplete(); await closing;
 });
@@ -261,7 +261,7 @@ test('info overlay: a short description is one page, no pan, the title stays at 
   const { made, gestures } = withComponents(views);
   skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
   skill.tapPicture();
-  assert.equal(skill.infoPages, 1);
+  assert.equal(skill.overlay.count, 1);
   assert.equal(made['info-body'].text, 'A planetary nebula.');
   assert.equal(made['info-title'].text, 'Cat\'s Eye');
   assert.equal(made['info-title'].style.fontSize, 54);
@@ -283,7 +283,7 @@ async function speaking(values, item, check) {
   const h = harness({ lists: { a: [item || LONG] }, values });
   const tts = fakeTts(h.jibo);
   h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
-  try { check(tts, h); }
+  try { await check(tts, h); }
   finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
 }
 
@@ -315,6 +315,66 @@ test('read aloud: turning the setting off, a slideshow advance and closing cut t
     assert.equal(tts.stops, 1, 'a title-only speech is not cut by that');
     h.skill.next();
     assert.equal(tts.stops, 2, 'the next picture cuts the speech');
+  });
+});
+
+// A reading that ends when `finish()` is called.
+function readingUntilFinished(tts) { const r = { finish: null }; tts.speak = (text) => { tts.said.push(text); return new Promise((resolve) => { r.finish = resolve; }); }; return r; }
+
+test('show time over: the eye waits for the reading to end', async () => {
+  const h = harness({ lists: { a: [LONG] }, values: { readDescription: true } });
+  const reading = readingUntilFinished(fakeTts(h.jibo));
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try {
+    h.skill.showTimeOver();
+    assert.equal(h.skill.leaving, false, 'still reading');
+    reading.finish(); await settle();
+    assert.equal(h.skill.leaving, true, 'left when the reading ended');
+  } finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+});
+
+test('show time over: without a reading it leaves at once; a menu opened meanwhile cancels the exit', async () => {
+  const quiet = harness({ lists: { a: [LONG] } });
+  quiet.skill.open(); await settle(); load(quiet.jibo, quiet.views.calls[0]); complete(quiet.views.calls[0]);
+  quiet.skill.showTimeOver();
+  assert.equal(quiet.skill.leaving, true);
+  let closing = close(quiet.skill); await settle(); quiet.views.calls[1].onComplete(); await closing;
+
+  const h = harness({ lists: { a: [LONG] }, values: { readDescription: true } });
+  const reading = readingUntilFinished(fakeTts(h.jibo));
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  h.skill.showTimeOver();
+  h.skill.model.openInfo();
+  reading.finish(); await settle();
+  assert.equal(h.skill.leaving, false, 'the person is still here');
+  assert.equal(h.skill.exitTimer, null);
+  closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing;
+});
+
+test('show time over: a reading that never ends is cut after speechWaitMs', async () => {
+  const h = harness({ lists: { a: [LONG] }, values: { readDescription: true } });
+  const tts = fakeTts(h.jibo);
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try {
+    h.skill.showTimeOver();
+    assert.equal(h.skill.leaving, false);
+    await wait(150);
+    assert.equal(tts.stops, 1, 'the speech was cut');
+    assert.equal(h.skill.leaving, true);
+  } finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+});
+
+test('read aloud: a speech that was cut does not end the one that replaced it', async () => {
+  await speaking({ readDescription: true }, null, async (tts, h) => {
+    const ends = [];
+    tts.speak = (text) => { tts.said.push(text); return new Promise((resolve) => ends.push(resolve)); };
+    h.skill.speak('First.', {});
+    h.skill.stopSpeaking();
+    h.skill.speak('Second.', {});
+    ends[0](); await settle();
+    assert.equal(h.skill.speaking, true, 'the first speech ending says nothing about the second');
+    ends[1](); await settle();
+    assert.equal(h.skill.speaking, false);
   });
 });
 

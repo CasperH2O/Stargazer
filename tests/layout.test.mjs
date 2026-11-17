@@ -57,3 +57,10 @@ test('the overlay fits the safe area: gear inside x 120-1160, text above y 600',
   assert.ok(I.meta.y + I.meta.size / 2 <= I.body.y);
   assert.ok(I.title.y + I.title.lines * I.title.line / 2 <= I.more.y, 'later pages under the title');
 });
+
+test('wrap: a word wider than a line is cut at the most characters that fit', () => {
+  const measure = (text, size) => text.length * size;      // 1 px per size unit and character
+  assert.deepEqual(L.wrap('abcdefghij', 40, 10, measure), ['abcd', 'efgh', 'ij']);
+  assert.deepEqual(L.wrap('ab abcdefghij', 40, 10, measure), ['ab', 'abcd', 'efgh', 'ij']);
+  assert.deepEqual(L.wrap('abcdef', 5, 10, measure), ['a', 'b', 'c', 'd', 'e', 'f'], 'at least one character per line');
+});

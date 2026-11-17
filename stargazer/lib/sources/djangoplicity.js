@@ -17,11 +17,10 @@ var CODE = /\/images\/((?:potm|potw|iotw)\d{4}[a-z])\/?/;
 // yymm or yyww as a sortable number: potm2610a -> 2610, potw2645a -> 2645.
 function serial(code) { var m = /(\d{4})/.exec(code || ''); return m ? Number(m[1]) : 0; }
 
-// The description the info overlay pages through: whole sentences up to DESCRIPTION_MAX characters,
-// without the feed's trailing "[ Image description: …]" (alt text) and "Links …" lines.
-var DESCRIPTION_MAX = 900;
+// The description the info overlay pages through: whole sentences, without the feed's trailing
+// "[ Image description: …]" (alt text) and "Links …" lines.
 function describe(value) {
-    return t.upTo(String(value || '').replace(/\s*\[\s*Image description[\s\S]*$/i, '').replace(/\s+Links\b[\s\S]*$/, ''), DESCRIPTION_MAX);
+    return t.upTo(String(value || '').replace(/\s*\[\s*Image description[\s\S]*$/i, '').replace(/\s+Links\b[\s\S]*$/, ''), t.DESCRIPTION_MAX);
 }
 
 function create(spec) {
