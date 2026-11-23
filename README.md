@@ -8,7 +8,7 @@ Stargazer needs BEam 3.2.0 or newer and an internet connection. It asks for no s
 
 ## Using it
 
-1. Install **Stargazer** from BEacon's **Store → Skills**, or use **⋮ → Upload Skill ZIP** with a release's `Stargazer.zip`. It becomes a button in the main menu.
+1. Install **Stargazer** from BEacon's **Store → Skills**, or use **⋮ → Upload Skill ZIP** with a release's `Stargazer.zip`. It becomes a button in the main menu, and it opens by voice (see "Open by voice" below).
 2. Open it. A telescope eyepiece appears, looking at the horizon with grass along the bottom of the lens. It rises towards the top of the screen over the still landscape, until only sky shows, and looks around the sky, with Jibo's own telescope sounds. Its focus dial lights up as the picture loads. When the picture is in, the eyepiece settles at the top, the picture comes into focus inside the lens, and the lens opens up to the whole screen with a slow pan and zoom.
 3. The caption has three lines:
    - the title;
@@ -22,6 +22,10 @@ Each time, Stargazer picks **one** source at random and shows its newest picture
 On the picture:
 - **Tap:** shows the info overlay: the title, the source and date, the description (up to about 900 characters, in pages that fit the screen) and the credit. Swipe sideways to turn a page. The small gear in the top right corner opens **Settings**.
 - **Swipe down:** goes back one level. On the picture it closes Stargazer.
+
+## Open by voice
+
+`phrases` in `manifest.json` lists what "Hey Jibo, ..." may say to open Stargazer, such as "stargazer", "show me the stars" and "show me the universe". BEam matches the whole sentence on the robot, from the transcript the cloud sends (`beacon/lib/launch-phrases.js` has the rules), and the skill needs no permission for it. Say just those words: "show me the stars and planets" is not one of them. The list is in the store text, and `tests/manifest.test.mjs` keeps the two in step. Stargazer's `open()` does not read what opened it.
 
 ## Settings
 

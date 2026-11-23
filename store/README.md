@@ -8,7 +8,14 @@ Stargazer needs BEam 3.2.0 or newer and an internet connection. It asks for no s
 
 ## Using it
 
-Once installed, **Stargazer** is a button in Jibo's main menu.
+Once installed, **Stargazer** is a button in Jibo's main menu. You can also say "Hey Jibo" and then:
+
+- "Stargazer", "open Stargazer", "start Stargazer", "launch Stargazer"
+- "show me the stars", "show me the night sky", "show me the universe", "show me space"
+- "look at the stars", "let me see the stars", "I want to see the stars"
+- "go stargazing", "let's go stargazing"
+
+Say just those words, nothing more. It needs Jibo to hear you through his cloud.
 
 When you open it, a telescope eyepiece looks at the horizon first, with grass along the bottom of the lens. Then it rises towards the sky and looks around, with Jibo's own telescope sounds. Its focus dial lights up as the picture loads. Then the picture comes into focus inside the lens, and the lens opens up to the whole screen.
 

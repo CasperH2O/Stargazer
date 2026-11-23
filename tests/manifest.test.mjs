@@ -120,3 +120,20 @@ test('a blocked file call (BEam throws when a permission is missing) never break
     fs.rmSync ? fs.rmSync(dir, { recursive: true, force: true }) : ['settings.json', 'seen.json', 'sources.json'].forEach((n) => fs.unlinkSync(path.join(dir, n)));
   }
 });
+
+// BEam matches the whole sentence heard after "Hey Jibo" against `phrases` and asks for no permission
+// for it (beacon/lib/launch-phrases.js has the rules).
+test('launch phrases: a valid list in the manifest, the store text lists them', () => {
+  const phrases = manifest.phrases;
+  assert.ok(Array.isArray(phrases) && phrases.length >= 1 && phrases.length <= 20);
+  const seen = new Set();
+  for (const phrase of phrases) {
+    assert.ok(typeof phrase === 'string' && phrase.length <= 100, phrase);
+    assert.match(phrase, /^[a-z' ]+$/, 'lower case words only: ' + phrase);
+    assert.ok(!seen.has(phrase), 'listed twice: ' + phrase);
+    seen.add(phrase);
+  }
+  const store = readFileSync(join(root, 'store/README.md'), 'utf8').toLowerCase();
+  // "star gazer" is how speech recognition may spell the name; it is not offered to the owner.
+  for (const phrase of phrases.filter((p) => !/star gazer/.test(p))) assert.ok(store.includes('"' + phrase + '"'), 'the store text lists "' + phrase + '"');
+});

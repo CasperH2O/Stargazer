@@ -1,8 +1,25 @@
 {
   "name": "Stargazer",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "supported": "3.2.0",
   "type": "skill",
   "themes": false,
-  "buttonColor": "#3765AB #1A2563"
+  "buttonColor": "#3765AB #1A2563",
+  "phrases": [
+    "stargazer",
+    "star gazer",
+    "open stargazer",
+    "start stargazer",
+    "launch stargazer",
+    "open star gazer",
+    "go stargazing",
+    "let's go stargazing",
+    "show me the stars",
+    "show me the night sky",
+    "show me the universe",
+    "show me space",
+    "look at the stars",
+    "let me see the stars",
+    "i want to see the stars"
+  ]
 }
