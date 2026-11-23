@@ -2,7 +2,7 @@
 
 Stargazer turns Jibo into a window on the universe. He shows an astronomy picture from ESA/Hubble, ESA/Webb or NOIRLab, with its name, where it is in the sky and who took it.
 
-Stargazer needs BEam 3.1.9 or newer and an internet connection.
+Stargazer needs BEam 3.2.0 or newer and an internet connection. It asks for no special access to Jibo.
 
 ![Stargazer on Jibo: a Webb picture with its caption, the settings, and a Hubble picture](banner.png)
 
@@ -65,4 +65,5 @@ Stargazer shows each picture on Jibo with its credit. It does not copy, store or
 
 - **Memory only:** pictures are downloaded into memory and dropped once they leave the screen. They are never saved to disk.
 - **What is stored:** only your settings, a short list of pictures already shown (for the "New" mark), and the newest picture last shown from each source (to pick a source with something new).
+- **No special access:** Stargazer does not use Jibo's microphone or camera, your home network, or other programs and files. It only reaches the public picture servers.
 - **No account and no tracking:** Stargazer only asks the picture sources for their latest pictures.

@@ -1,4 +1,4 @@
-// Every source parser against saved responses (2026-11-14), plus the tricky cases.
+// Every source parser against saved responses, plus the tricky cases.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lib, fixture, fakeNet } from './helpers.mjs';

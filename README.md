@@ -2,7 +2,7 @@
 
 Stargazer turns Jibo into a window on the universe. He shows an astronomy picture from ESA/Hubble, ESA/Webb or NOIRLab, with its name, where it is in the sky and who took it.
 
-Stargazer needs BEam 3.1.9 or newer and an internet connection.
+Stargazer needs BEam 3.2.0 or newer and an internet connection. It asks for no special access to Jibo.
 
 ![Stargazer on Jibo: a Webb picture with its caption, the settings, and a Hubble picture](banner.png)
 
@@ -65,6 +65,7 @@ Stargazer shows each picture on Jibo with its credit, and does not copy, store o
 - **Memory only:** pictures are downloaded into memory and dropped once they leave the screen. They are never saved to disk.
 - **What is stored:** only your settings, a short list of picture IDs already shown (for the "New" mark), and the newest picture last shown from each source (to pick a source with something new).
 - **No account and no tracking.** Stargazer only asks the picture sources for their latest pictures.
+- **No permissions:** the manifest lists none. Stargazer keeps its files in its own Knowledge folder, talks only to the public picture servers, and uses neither the microphone, the camera, the home network nor other programs. `tests/manifest.test.mjs` is meant to fail when the code starts to need one.
 
 ## Build and test (development machine)
 
@@ -89,7 +90,7 @@ stargazer/                    the @be/stargazer package (what runs on Jibo)
   lib/effects/eyepiece.js     the eyepiece that searches the sky (from the horizon up) while the picture loads
   lib/sounds.js               Jibo's telescope sounds (played from his animation library)
   lib/motion.js               "Look up" on the body
-  lib/settings.js             settings.json, seen.json and sources.json (what each source showed last)
+  lib/settings.js             settings.json, seen.json and sources.json (what each source showed last), in its own Knowledge folder
 tests/, tools/                development only; not in the ZIP
 ```
 

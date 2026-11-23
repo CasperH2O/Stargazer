@@ -1,5 +1,6 @@
 'use strict';
-// What Stargazer stores, in its own data folder (it survives skill updates):
+// What Stargazer stores, in a folder of its own Knowledge section (it survives skill updates and
+// needs no permission, D37):
 //   settings.json  the person's choices
 //   seen.json      ids of pictures already shown, for the "New" mark (at most SEEN_MAX)
 //   sources.json   the newest picture last shown from each source (used by catalog.js)
@@ -58,10 +59,12 @@ function clean(values) {
 }
 
 function onRobot() { return fs.existsSync('/opt/jibo/Jibo/Skills'); }
-// BEacon keeps custom-skill data under Knowledge/beacon on the robot, /tmp/beam-beacon elsewhere.
+// A skill may use /opt/jibo/Knowledge/<name> without a permission; anywhere else in the Knowledge
+// base needs read-kb / edit-kb. A subfolder keeps clear of the settings.json BEacon writes there.
+var ROBOT_DATA = '/opt/jibo/Knowledge/' + NAME + '/data';
 function dataRoot() {
     if (process.env.STARGAZER_DATA_DIR) return path.resolve(process.env.STARGAZER_DATA_DIR);
-    return onRobot() ? '/opt/jibo/Knowledge/beacon/custom-skills/' + NAME : '/tmp/beam-beacon/custom-skills/' + NAME;
+    return onRobot() ? ROBOT_DATA : '/tmp/beam-beacon/custom-skills/' + NAME;
 }
 // mkdir -p with private (0700) directories.
 function ensureDirectory(dir) {
@@ -182,7 +185,7 @@ function closeAfter(values) { return values.slideshow ? 0 : values.showFor; }
 
 module.exports = {
     NAME: NAME, SOURCES: SOURCES, EFFECTS: EFFECTS, SHOW_FOR: SHOW_FOR, SLIDESHOW: SLIDESHOW, DEFAULTS: DEFAULTS, SEEN_MAX: SEEN_MAX, KEY_MAX: KEY_MAX, LIMITS: LIMITS,
-    clean: clean, dataRoot: dataRoot, onRobot: onRobot, Store: Store,
+    clean: clean, dataRoot: dataRoot, ROBOT_DATA: ROBOT_DATA, onRobot: onRobot, Store: Store,
     toggleSource: toggleSource, toggleEffect: toggleEffect, nextShowFor: nextShowFor, nextSlideshow: nextSlideshow, toggle: toggle,
     enabledSources: enabledSources, closeAfter: closeAfter
 };
