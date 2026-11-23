@@ -133,7 +133,15 @@ test('launch phrases: a valid list in the manifest, the store text lists them', 
     assert.ok(!seen.has(phrase), 'listed twice: ' + phrase);
     seen.add(phrase);
   }
-  const store = readFileSync(join(root, 'store/README.md'), 'utf8').toLowerCase();
+  const store = readFileSync(join(root, 'README.md'), 'utf8').toLowerCase();
   // "star gazer" is how speech recognition may spell the name; it is not offered to the owner.
   for (const phrase of phrases.filter((p) => !/star gazer/.test(p))) assert.ok(store.includes('"' + phrase + '"'), 'the store text lists "' + phrase + '"');
+});
+
+// The 5x1 Store shows the repository's README.md and BEacon the same file from the ZIP; BEacon's
+// Markdown has no tables or code blocks.
+test('README.md is plain store text: no tables, no code blocks', () => {
+  const readme = readFileSync(join(root, 'README.md'), 'utf8');
+  assert.ok(!/^\s*\|/m.test(readme), 'a table row');
+  assert.ok(!/^```/m.test(readme), 'a code block');
 });

@@ -41,6 +41,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.leaving = false;           // leave() was called
             this.closing = null;            // the close in flight (a promise)
             this.openedAt = 0; this.openings = 0;
+            this.reopen = false;            // an open waits for a close to settle, see reopenAfter()
             // Services, made per opening.
             this.store = null; this.images = null; this.catalog = null; this.loader = null; this.motion = null; this.sounds = null;
             // Stored state: picture ids already shown, and what each source showed last.
@@ -68,6 +69,13 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             this.dirty = false;             // the sources changed in the menus: load anew on the way back
             this.sourcesKey = null;
         }
+        // Open again once `closing` settles, unless Be closes the skill meanwhile (close() clears it).
+        reopenAfter(closing) {
+            var self = this;
+            this.reopen = true;
+            function again() { if (!self.reopen) return; self.reopen = false; self.open(); }
+            closing.then(again, again);
+        }
         // Milliseconds since this opening started, for the log.
         since() { return (Date.now() - this.openedAt) + ' ms'; }
         active() {
@@ -81,14 +89,16 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             // A close still in flight: open once it has settled (it gives up after CLOSE_MS).
             if (this.closing) {
                 this.diagnostics.warn('open #' + this.openings + ' while the last close is still running: waiting for it');
-                this.closing.then(function () { self.open(); }, function () { self.open(); });
+                this.reopenAfter(this.closing);
                 return;
             }
-            // Left over from an opening whose close failed (Be then resets the face): start clean.
+            // Opened again while on screen (a launch phrase, without a close first), or a view left from an
+            // opening whose close failed: close it first, so no stale view stays under the new one (D40).
             if (this.view) {
-                this.diagnostics.warn('open #' + this.openings + ': dropping a view left from the last opening (state', this.view.state + ')');
-                this.halt(); this.disposeDecor(); this.view = null;
-                if (this.model) { this.model.close(); this.model = null; }
+                this.diagnostics.warn('open #' + this.openings + ': closing the view still there first (state', this.view.state + ')');
+                this.close();
+                this.reopenAfter(this.closing);
+                return;
             }
             this.leaving = false; this.closing = null; this.slide = {x: 0, velocity: 0, target: 0};
             this.overlay.reset(); this.cancelExit();
@@ -258,14 +268,26 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
             }
         }
         // `reads` says which settings the speech came from, so that turning one off can stop it (cutBy).
+        // The pieces are said one after another; a newer speech, or a stop by anyone (ours, another
+        // speaker, "Hey Jibo"), ends the whole reading, not only the piece playing.
         speak(text, reads) {
-            var self = this, tts = jibo.tts, id = ++this.speechId;
-            if (!tts || typeof tts.speak !== 'function' || !text) return;
+            var self = this, tts = jibo.tts, id = ++this.speechId, pieces = speech.utterances(text);
+            if (!tts || typeof tts.speak !== 'function' || !pieces.length) return;
             this.speaking = true; this.reads = reads || {};
-            function ended() { if (self.speechId === id) self.speechEnded(); }
-            try {
-                Promise.resolve(tts.speak(text)).catch(function () {}).then(ended);
-            } catch (_) { ended(); }
+            var stopped = tts.stopped && typeof tts.stopped.on === 'function' ? tts.stopped : null;
+            var cut = false, ownStop = false;   // ownStop: tts.speak stops a speech still finishing itself
+            function onStopped() { if (ownStop) ownStop = false; else cut = true; }
+            function unsubscribe() { if (stopped) stopped.off(onStopped); }
+            function say(i) {
+                if (self.speechId !== id) { unsubscribe(); return; }
+                if (!self.speaking || cut || i >= pieces.length) { unsubscribe(); self.speechEnded(); return; }
+                ownStop = !!(tts.isTalking || tts.isStopping);
+                try {
+                    Promise.resolve(tts.speak(pieces[i])).catch(function () {}).then(function () { say(i + 1); });
+                } catch (_) { unsubscribe(); self.speechEnded(); }
+            }
+            if (stopped) stopped.on(onStopped);
+            say(0);
         }
         speechEnded() {
             this.speaking = false;
@@ -779,6 +801,7 @@ module.exports = function createScreen(jibo, BeSkill, deps) {
         // which then resets the face.
         close(done) {
             done = done || function () {};
+            this.reopen = false;
             if (this.closing) { this.closing.then(function () { done(); }, done); return; }
             var self = this, started = Date.now();
             this.halt();

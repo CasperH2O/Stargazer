@@ -135,13 +135,31 @@ test('open while the last close is still running waits for it, then opens', asyn
   const again = close(skill); await settle(); views.calls[3].onComplete(); await again;
 });
 
-test('a view left over from a failed close is dropped on open', async () => {
+test('open while on screen (a launch phrase) removes the old view before adding a new one', async () => {
   const { jibo, views, skill, log } = harness();
   skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
-  skill.open();                                      // Be opens again without a close (or after a reset)
+  const old = skill.view;
+  skill.open();                                      // Be opens again without a close
+  assert.ok(log.some((l) => /closing the view still there first/.test(l)));
+  assert.equal(views.created, 1, 'no new view on top of the old one');
+  await settle();
+  assert.equal(views.calls[1].options.remove, true);
+  assert.equal(views.calls[1].options.leaveEmpty, true);
+  views.currentView = null; views.calls[1].onComplete(); await settle();
   assert.equal(views.created, 2);
-  assert.ok(log.some((l) => /dropping a view left from the last opening/.test(l)));
-  await settle(); load(jibo, views.calls[1]);
+  assert.ok(views.calls[2].options.addView && views.calls[2].options.addView !== old);
+  load(jibo, views.calls[2]);
+  assert.equal(skill.model.base, 'viewer');
+  const again = close(skill); await settle(); views.calls[3].onComplete(); await again;
+});
+
+test('a view left over from a failed close is closed on open, then a new one opens', async () => {
+  const { jibo, views, skill } = harness();
+  skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
+  skill.view.state = 'destroyed'; views.currentView = null;   // Be reset the face
+  skill.open(); await settle();
+  assert.equal(views.created, 2);
+  load(jibo, views.calls[1]);
   const again = close(skill); await settle(); views.calls[2].onComplete(); await again;
 });
 
@@ -287,19 +305,30 @@ async function speaking(values, item, check) {
   finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
 }
 
-test('read aloud: the title by default; the description only when asked, after the title, as one clean utterance', async () => {
+test('read aloud: the title by default; the description only when asked, after the title, as one clean text', async () => {
   await speaking({}, null, (tts) => assert.deepEqual(tts.said, ['Cat\'s Eye.'], 'default: title only'));
   await speaking({ readDescription: true }, null, (tts) => assert.deepEqual(tts.said, ['Cat\'s Eye. A planetary nebula. See for details. It is old.']));
   await speaking({ readTitle: false, readDescription: true }, null, (tts) => assert.deepEqual(tts.said, ['A planetary nebula. See for details. It is old.'], 'description alone'));
   await speaking({ readTitle: false }, null, (tts) => assert.deepEqual(tts.said, [], 'both off: silent'));
 });
 
-test('read aloud: a long description is cut on a sentence at 900 characters; nothing is said without a description', async () => {
+test('read aloud: a long description is cut on a sentence at 900 characters and said in pieces of at most 450; nothing is said without a description', async () => {
   const description = Array.from({ length: 80 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
-  await speaking({ readTitle: false, readDescription: true }, { ...LONG, description }, (tts) => {
-    const said = tts.said[0];
-    assert.ok(said.length <= 900 && said.length > 800 && /here\.$/.test(said), said.length);
-  });
+  const h = harness({ lists: { a: [{ ...LONG, description }] }, values: { readTitle: false, readDescription: true } });
+  const reading = readingUntilFinished(fakeTts(h.jibo));
+  const tts = h.jibo.tts;
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try {
+    assert.equal(tts.said.length, 1, 'one piece at a time');
+    reading.finish(); await settle();
+    assert.equal(tts.said.length, 2);
+    reading.finish(); await settle();
+    assert.equal(tts.said.length, 2, 'no third piece');
+    assert.equal(h.skill.speaking, false, 'the reading ended after the last piece');
+    const all = tts.said.join(' ');
+    assert.ok(tts.said.every((p) => p.length <= 450 && /here\.$/.test(p)), tts.said.map((p) => p.length).join(','));
+    assert.ok(all.length <= 900 && all.length > 800, all.length);
+  } finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
   await speaking({ readTitle: false, readDescription: true }, { ...LONG, description: '' }, (tts) => assert.deepEqual(tts.said, []));
 });
 
@@ -384,4 +413,54 @@ test('read aloud: nothing is said when a menu already covers the picture', async
   h.skill.open(); await settle(); h.skill.model.openSettings(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
   try { assert.deepEqual(tts.said, []); }
   finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+});
+
+test('read aloud: a stop by someone else (another speaker, "Hey Jibo") ends the whole reading, not only its piece', async () => {
+  const description = Array.from({ length: 80 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+  const h = harness({ lists: { a: [{ ...LONG, description }] }, values: { readTitle: false, readDescription: true } });
+  const reading = readingUntilFinished(fakeTts(h.jibo));
+  const tts = h.jibo.tts, handlers = new Set();
+  tts.stopped = { on: (f) => handlers.add(f), off: (f) => handlers.delete(f) };
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try {
+    assert.equal(tts.said.length, 1);
+    assert.equal(handlers.size, 1, 'listening for stops while reading');
+    handlers.forEach((f) => f());                    // someone else stops the speech
+    reading.finish(); await settle();
+    assert.equal(tts.said.length, 1, 'no next piece');
+    assert.equal(h.skill.speaking, false);
+    assert.equal(handlers.size, 0, 'no listener left');
+  } finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+});
+
+test('read aloud: the stop that tts.speak sends to a speech still finishing does not cut the reading', async () => {
+  const description = Array.from({ length: 80 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+  const h = harness({ lists: { a: [{ ...LONG, description }] }, values: { readTitle: false, readDescription: true } });
+  const reading = readingUntilFinished(fakeTts(h.jibo));
+  const tts = h.jibo.tts, handlers = new Set();
+  tts.stopped = { on: (f) => handlers.add(f), off: (f) => handlers.delete(f) };
+  h.skill.open(); await settle(); load(h.jibo, h.views.calls[0]); complete(h.views.calls[0]);
+  try {
+    tts.isTalking = true;                            // piece 1 resolved, but the engine still says it is talking
+    reading.finish(); await settle();
+    assert.equal(tts.said.length, 2);
+    handlers.forEach((f) => f());                    // the stop tts.speak sends before piece 2
+    tts.isTalking = false;
+    reading.finish(); await settle();
+    assert.equal(h.skill.speaking, false, 'piece 2 was the last; the reading ended normally');
+    assert.equal(handlers.size, 0);
+  } finally { const closing = close(h.skill); await settle(); h.views.calls[1].onComplete(); await closing; }
+});
+
+test('open while on screen, then Be closes the skill before the old view is gone: no reopen', async () => {
+  const { jibo, views, skill } = harness();
+  skill.open(); await settle(); load(jibo, views.calls[0]); complete(views.calls[0]);
+  skill.open();                                      // a launch phrase: the old view is being closed
+  await settle();
+  const beClosed = close(skill);                     // Be switches away meanwhile
+  views.currentView = null; views.calls[1].onComplete();
+  await beClosed; await settle();
+  assert.equal(views.created, 1, 'no new view after Be closed the skill');
+  assert.equal(skill.view, null);
+  assert.equal(skill.model, null);
 });

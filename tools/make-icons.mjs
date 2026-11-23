@@ -5,20 +5,18 @@
 //
 //   stargazer/resources/icons/tile-<name>.png    330x300  SkillButton icons
 //   stargazer/resources/icons/action-<name>.png  265x265  ActionButton icons
-//   icon.png                                               330x300  store / main-menu icon
+//   icon.png                                               330x330  store / main-menu icon
 //
 // Style (ui/jibo-ui-classic iconography, derived): white glyph, navy cut-outs, soft long
 // shadow toward the lower right (black, at most about 0.2 alpha).
-//
+
 // Tile placement (iconography.drawingBox): a SkillButton is a circle of diameter 330 whose
 // bottom is cut off at y=300, so the circle's centre is (165, 165) in the 330x300 canvas. Each
 // tile glyph is rendered once, its opaque bounding box is measured (shadow excluded), and the
 // glyph is shifted so that box is centred on (165, 165) - not on the visible 300 px shape.
 //
-// icon.png follows the same rule: the main menu shows it as the icon of a stock SkillButton,
-// a PIXI Sprite anchored at its centre (jibo MenuButton/StandardButton.addToContent) inside the
-// timeline's icon container at (165, 149) of the 330x300 button. A 330x330 icon therefore sat
-// 15 px higher than a stock 330x300 icon; at 330x300 the canvas maps onto the button (1 px up).
+// icon.png: rendered like a tile, then put 15 px down on the 330x330 canvas the 5x1 docs ask for;
+// the menu centres it on the button, so the glyph lands where a stock 330x300 icon's does (D43).
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -34,13 +32,13 @@ const { chromium } = require(process.argv[2] || 'playwright');
 const TILES = ['hubble', 'webb', 'noirlab', 'kenburns', 'iris', 'lookup', 'starfield',
   'speak', 'caption', 'slideshow', 'layers', 'timer', 'sound'];
 const ACTIONS = ['gear', 'refresh'];
-// [file, canvas w, h, glyph box, glyph x, glyph y, shadow length, glyph name]
+// [file, canvas w, h, glyph box, glyph x, glyph y, shadow length, glyph name, square side (optional)]
 // Tiles and icon.png pass null for x/y: the glyph's measured opaque box is centred on TILE_CENTRE.
 const TILE_CENTRE = [165, 165];
 const jobs = [
   ...TILES.map((n) => [`tile-${n}.png`, 330, 300, 180, null, null, 110, n]),
   ...ACTIONS.map((n) => [`action-${n}.png`, 265, 265, 150, 57.5, 57.5, 80, n]),
-  ['../../../icon.png', 330, 300, 190, null, null, 140, 'telescope']
+  ['../../../icon.png', 330, 300, 190, null, null, 140, 'telescope', 330]
 ];
 const svg = (name, black) => {
   let body = glyphs[name];
@@ -51,8 +49,8 @@ const svg = (name, black) => {
 const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.setContent('<html><body></body></html>');
-for (const [file, w, h, box, gx, gy, len, name] of jobs) {
-  const data = await page.evaluate(async ({ w, h, box, gx, gy, len, centre, white, black }) => {
+for (const [file, w, h, box, gx, gy, len, name, side] of jobs) {
+  const data = await page.evaluate(async ({ w, h, box, gx, gy, len, side, centre, white, black }) => {
     const load = (src) => new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
     const [g, s] = await Promise.all([load(white), load(black)]);
     const canvas = (cw, ch) => Object.assign(document.createElement('canvas'), { width: cw, height: ch });
@@ -80,8 +78,11 @@ for (const [file, w, h, box, gx, gy, len, name] of jobs) {
     const out = canvas(w, h), ctx = out.getContext('2d');
     ctx.globalAlpha = 0.2; ctx.drawImage(sh, 0, 0); ctx.globalAlpha = 1;
     ctx.drawImage(g, gx, gy, box, box);
-    return out.toDataURL('image/png');
-  }, { w, h, box, gx, gy, len, centre: TILE_CENTRE, white: svg(name, false), black: svg(name, true) });
+    if (!side) return out.toDataURL('image/png');
+    const square = canvas(side, side);
+    square.getContext('2d').drawImage(out, 0, (side - h) / 2);
+    return square.toDataURL('image/png');
+  }, { w, h, box, gx, gy, len, side: side || 0, centre: TILE_CENTRE, white: svg(name, false), black: svg(name, true) });
   writeFileSync(join(ICONS, file), Buffer.from(data.split(',')[1], 'base64'));
 }
 await browser.close();

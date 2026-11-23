@@ -4,8 +4,8 @@
     python3 tools/package.py [--output dist/Stargazer.zip]
 
 Layout (BEam docs/custom-skills.md): manifest.json, icon.png, banner.png and README.md at the root,
-where README.md is the store text from store/README.md (BEacon's simple Markdown: headings, paragraphs,
-flat lists, bold; no tables), not the developer README,
+where README.md is the owner's text that the 5x1 Store reads from the repository and BEacon shows from
+the ZIP (BEacon's simple Markdown: headings, paragraphs, flat lists, bold; no tables); DEVELOPMENT.md stays out,
 and one package root, stargazer/, holding the @be/stargazer asset-pack with its
 JavaScript main. No npm or build step runs on the robot, so the ZIP carries everything.
 The ZIP is deterministic (sorted entries, fixed timestamps, no exec bits) and checked
@@ -23,7 +23,7 @@ SKILL = 'stargazer'
 MAX_ZIP, MAX_EXPANDED, MAX_ENTRIES = 32 * 1024 * 1024, 64 * 1024 * 1024, 1024
 STAMP = (2026, 1, 1, 0, 0, 0)
 STORE_FILES = {'manifest.json': 'manifest.json', 'icon.png': 'icon.png', 'banner.png': 'banner.png',
-               'README.md': 'store/README.md'}     # ZIP name: source file
+               'README.md': 'README.md'}     # ZIP name: source file
 
 
 def check_package():

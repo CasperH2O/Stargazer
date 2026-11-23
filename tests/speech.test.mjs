@@ -28,3 +28,15 @@ test('spokenText: a setting without text behind it reads nothing, so turning it 
   assert.deepEqual(spokenText({ title: 'T', description: '' }, { readTitle: true, readDescription: true }), { text: 'T.', readsTitle: true, readsDescription: false });
   assert.equal(spokenText({ title: '', description: 'Text.' }, { readTitle: true, readDescription: false }).text, '');
 });
+
+test('utterances: pieces of at most 450 characters, split after a sentence, with markup characters escaped', () => {
+  const { utterances } = lib('speech.js');
+  assert.deepEqual(utterances('Stars & dust <1>.'), ['Stars &amp; dust &lt;1&gt;.']);
+  assert.deepEqual(utterances(''), []);
+  const long = Array.from({ length: 40 }, (_, i) => `Sentence ${i} is here.`).join(' ');
+  const pieces = utterances(long);
+  assert.ok(pieces.length > 1 && pieces.every((p) => p.length <= 450 && /here\.$/.test(p)));
+  assert.equal(pieces.join(' '), long);
+  const word = 'a'.repeat(500);
+  assert.ok(utterances(word).every((p) => p.length <= 450), 'a piece without spaces is cut hard');
+});
